@@ -38,6 +38,8 @@ app = FastAPI(title="Syllabus Audit")
 text_cache = TextCache(BASE / ".cache" / "text_cache.json")
 pool = ThreadPoolExecutor(max_workers=8)
 
+NO_CACHE = {"Cache-Control": "no-cache, must-revalidate"}   # always serve the newest page after a deploy
+APP_VERSION = "2026-10-16 r16 (verbs-only prompt, Use fix, no Drive screen)"
 STRONG_NAME = 90
 POSSIBLE_NAME = 70
 
@@ -63,14 +65,14 @@ class CheckIn(BaseModel):
 
 @app.get("/")
 def index():
-    return FileResponse(BASE / "static" / "index.html")
+    return FileResponse(BASE / "static" / "index.html", headers=NO_CACHE)
 
 
 @app.get("/professor")
 @app.get("/coordinator")
 def role_page():
     """Same page; the path picks the view. "/" shows the role chooser."""
-    return FileResponse(BASE / "static" / "index.html")
+    return FileResponse(BASE / "static" / "index.html", headers=NO_CACHE)
 
 
 @app.get("/api/verbs")
@@ -85,6 +87,7 @@ def config():
     if folder and "/" not in folder:
         folder = f"https://drive.google.com/drive/folders/{folder}"
     return {
+        "version": APP_VERSION,
         "fixed_folder": bool(fixed_folder()),
         "google_client_id": None if fixed_folder() else (os.getenv("GOOGLE_CLIENT_ID") or None),
         "default_folder": folder,
