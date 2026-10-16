@@ -1,0 +1,10 @@
+.env
+service-account.json
+.cache/
+.cache-index-*
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.DS_Store
+.incoming/

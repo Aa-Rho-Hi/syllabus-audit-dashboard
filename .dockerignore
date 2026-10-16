@@ -1,0 +1,11 @@
+.env
+.venv
+.cache
+.cache-index-*
+__pycache__
+*.pyc
+service-account.json
+tests
+docs
+.git
+.incoming

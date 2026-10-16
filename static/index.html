@@ -1,0 +1,640 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Syllabus Audit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f6f5f3; --panel:#fff; --ink:#1f1d1b; --muted:#6f6962; --line:#e6e1da;
+  --brand:#500000; --brand-hover:#6b0b0b; --brand-soft:#f6eded;
+  --bad:#c62828; --bad-bg:#fde4e4; --warn:#986300; --warn-bg:#fff3d4; --good:#1e6b3a; --good-bg:#e4f4e9;
+  --sans:"Inter",system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 var(--sans)}
+.wrap{max-width:780px;margin:0 auto;padding:0 18px}
+button{font:inherit;cursor:pointer;border-radius:8px;border:1px solid transparent}
+input,textarea{font:inherit}
+.hidden{display:none!important}
+.muted{color:var(--muted)}
+.small{font-size:13px}
+
+/* top bar */
+header{background:var(--brand);color:#fff}
+header .wrap{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:58px;flex-wrap:wrap;padding-top:8px;padding-bottom:8px}
+header h1{font-size:18px;font-weight:600;margin:0;letter-spacing:.1px}
+.folder-chip{display:flex;align-items:center;gap:8px;font-size:13.5px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);border-radius:99px;padding:5px 6px 5px 12px;max-width:100%}
+.folder-chip span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.folder-chip button{background:#fff;color:var(--brand);font-size:12.5px;font-weight:600;padding:3px 10px;border-radius:99px}
+
+/* drive bar */
+.drivebar{display:flex;align-items:center;gap:12px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-top:22px;flex-wrap:wrap}
+.drivebar svg{width:26px;height:26px;flex:none}
+.drivebar .grow{flex:1;min-width:160px}
+.small-btn{padding:7px 12px;font-size:13.5px}
+/* tabs */
+.tabs{display:flex;gap:4px;margin:22px 0 14px;border-bottom:1px solid var(--line)}
+.tabs button{background:none;padding:10px 14px;font-weight:500;color:var(--muted);border-radius:0;border-bottom:2px solid transparent;margin-bottom:-1px}
+.tabs button.on{color:var(--ink);border-bottom-color:var(--brand)}
+
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px;margin-bottom:14px}
+h2{font-size:17px;font-weight:600;margin:0 0 12px}
+label{display:block;font-size:13px;font-weight:500;margin-bottom:5px;color:#3f3b37}
+input[type=text]{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:8px;background:#fff}
+input[type=text]:focus,textarea:focus{outline:2px solid #c9a3a3;outline-offset:0;border-color:transparent}
+.btn{background:var(--brand);color:#fff;font-weight:600;padding:11px 18px}
+.btn:hover{background:var(--brand-hover)}
+.btn:disabled{opacity:.6;cursor:wait}
+.ghost{background:#fff;border-color:var(--line);color:var(--ink);font-weight:500;padding:9px 14px}
+.ghost:hover{border-color:#c4bcb2}
+.link{background:none;border:0;padding:0;color:var(--brand);font-weight:500;text-decoration:underline;text-underline-offset:2px}
+.row{display:flex;gap:10px;align-items:end;flex-wrap:wrap}
+.row > .grow{flex:1;min-width:180px}
+
+/* folder setup */
+.gbtn{display:inline-flex;align-items:center;gap:8px;background:#fff;border:1px solid #dadce0;color:#3c4043;font-weight:500;padding:9px 14px}
+.gbtn svg{width:18px;height:18px}
+#folder-msg{margin-top:10px;font-size:13.5px}
+#folder-msg.bad{color:var(--bad)}
+
+/* messages */
+.note{border-radius:10px;padding:13px 15px;margin-top:14px;font-size:14.5px}
+.note b{display:block;margin-bottom:2px}
+.note.good{background:var(--good-bg);color:#14421f}
+.note.warn{background:var(--warn-bg);color:#5a3c00}
+.note.info{background:#eef2f6;color:#24364d}
+.note.bad{background:var(--bad-bg);color:#6d1414}
+.note a{color:inherit}
+ol.objs{margin:12px 0 0;padding-left:22px}
+ol.objs li{margin:6px 0}
+
+/* editor with live highlighting */
+.editor{position:relative;border:1px solid var(--line);border-radius:8px;background:#fff}
+.editor .backdrop,.editor textarea{margin:0;padding:13px 15px;font:15px/1.7 var(--sans);white-space:pre-wrap;overflow-wrap:break-word;width:100%;min-height:200px;border:0;border-radius:8px}
+.editor .backdrop{position:absolute;inset:0;color:transparent;overflow:auto;pointer-events:none}
+.editor textarea{position:relative;display:block;background:transparent;color:var(--ink);resize:vertical}
+mark{color:transparent;border-radius:3px;padding:0}
+mark.avoid,mark.ai{background:var(--bad-bg);box-shadow:inset 0 -2px 0 var(--bad)}
+mark.warn{background:var(--warn-bg);box-shadow:inset 0 -2px 0 var(--warn)}
+.view mark{color:inherit;background:none;box-shadow:none;font-weight:600}
+.view mark.avoid,.view mark.ai{color:var(--bad);text-decoration:underline;text-underline-offset:2px}
+.view mark.warn{color:var(--warn)}
+.bar{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap}
+#status{font-size:14px}
+#status .ok{color:var(--good);font-weight:500}
+#status .bad{color:var(--bad);font-weight:600}
+.spin{display:inline-block;width:12px;height:12px;border:2px solid #d8d2cb;border-top-color:var(--brand);border-radius:50%;animation:s .8s linear infinite;vertical-align:-1px;margin-right:6px}
+@keyframes s{to{transform:rotate(360deg)}}
+
+/* problem list */
+.problems{margin-top:12px;display:grid;gap:8px}
+.problem{border:1px solid var(--line);border-left:3px solid var(--bad);border-radius:8px;padding:11px 13px;background:#fff}
+.problem .why{font-size:13.5px;color:var(--muted);margin-top:3px}
+.problem .fix{margin-top:8px;display:flex;gap:10px;align-items:center;justify-content:space-between;background:var(--good-bg);border-radius:6px;padding:7px 10px;font-size:14px}
+.problem .fix button{font-size:13px;padding:5px 11px}
+
+/* audit */
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:14px 0}
+.stat{background:#faf8f6;border:1px solid var(--line);border-radius:10px;padding:10px 12px;text-align:left}
+.stat b{display:block;font-size:22px;font-weight:600;line-height:1.2}
+.stat span{font-size:12.5px;color:var(--muted)}
+.stat.on{border-color:var(--brand);box-shadow:0 0 0 1px var(--brand)}
+.stat.s-issues b{color:var(--bad)} .stat.s-missing b{color:var(--warn)} .stat.s-clean b{color:var(--good)}
+.progress{height:6px;background:#ece6df;border-radius:99px;overflow:hidden;margin:14px 0 6px}
+.progress i{display:block;height:100%;background:var(--brand);transition:width .3s}
+.course{border:1px solid var(--line);border-radius:8px;margin-bottom:6px;background:#fff}
+.course summary{padding:10px 13px;cursor:pointer;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;list-style:none}
+.course summary::-webkit-details-marker{display:none}
+.course .dot{width:8px;height:8px;border-radius:50%;flex:none;align-self:center}
+.dot.issues{background:var(--bad)} .dot.missing{background:var(--warn)} .dot.clean{background:var(--good)}
+.course .name{font-weight:600}
+.course .sum{font-size:13.5px;color:var(--muted)}
+.course .body{padding:0 13px 10px}
+.course .o{padding:8px 0;border-top:1px solid #f0ece7;font-size:14px}
+.course .o .why{font-size:13px;color:var(--muted)}
+.course .o .sug{margin-top:4px;font-size:13.5px;color:var(--good)}
+
+/* verbs dialog */
+dialog{border:0;border-radius:12px;padding:0;width:min(640px,calc(100vw - 32px));max-height:80vh}
+dialog::backdrop{background:rgba(20,10,10,.35)}
+.dlg-head{display:flex;justify-content:space-between;align-items:center;padding:16px 18px;border-bottom:1px solid var(--line);position:sticky;top:0;background:#fff}
+.dlg-body{padding:6px 18px 18px;overflow:auto}
+.lvl{margin-top:12px}
+.lvl h4{margin:0 0 6px;font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.6px}
+.chips{display:flex;flex-wrap:wrap;gap:5px}
+.chips button{font-size:13px;padding:3px 9px;border-radius:6px;background:#f4f2ef;border:1px solid #ebe7e1;color:var(--ink)}
+.chips button:hover{background:var(--brand-soft)}
+.chips.bad span{font-size:13px;padding:3px 9px;border-radius:6px;background:var(--bad-bg);color:var(--bad)}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1>Syllabus Audit</h1>
+  </div>
+</header>
+
+<div class="wrap">
+  <!-- folder setup: only shown until a folder is connected -->
+  <div class="card" id="setup" style="margin-top:22px">
+    <h2>Connect a Google Drive folder</h2>
+    <p class="muted small" style="margin:-4px 0 12px">Paste the link to the folder with the syllabi. You'll sign in with Google so the app can read it (read-only).</p>
+    <form id="folder-form" class="row" autocomplete="off">
+      <div class="grow"><input id="folder" type="text" placeholder="Paste the folder link"></div>
+      <button class="btn" id="connect">Connect</button>
+    </form>
+    <div class="row" style="margin-top:10px">
+      <button type="button" class="gbtn hidden" id="signin"><svg viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.6 5.4 2.6 13.2l7.9 6.2C12.4 13.7 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.4c-.5 2.9-2.2 5.3-4.6 6.9l7.4 5.8c4.3-4 6.9-9.9 6.9-17.2z"/><path fill="#FBBC05" d="M10.5 28.6c-.5-1.4-.8-3-.8-4.6s.3-3.2.8-4.6l-7.9-6.2C1 16.5 0 20.1 0 24s1 7.5 2.6 10.8l7.9-6.2z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.4-5.8c-2.1 1.4-4.8 2.3-8.5 2.3-6.3 0-11.6-4.2-13.5-10l-7.9 6.2C6.6 42.6 14.6 48 24 48z"/></svg>Sign in with Google</button>
+      <button type="button" class="link small" id="use-samples">or try the sample syllabi</button>
+    </div>
+    <div id="folder-msg" class="muted"></div>
+  </div>
+
+  <div id="app" class="hidden">
+    <div class="drivebar">
+      <svg viewBox="0 0 87.3 78" aria-hidden="true"><path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8h-27.5c0 1.55.4 3.1 1.2 4.5z" fill="#0066da"/><path d="m43.65 25-13.75-23.8c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44a9.06 9.06 0 0 0 -1.2 4.5h27.5z" fill="#00ac47"/><path d="m73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5h-27.502l5.852 11.5z" fill="#ea4335"/><path d="m43.65 25 13.75-23.8c-1.35-.8-2.9-1.2-4.5-1.2h-18.5c-1.6 0-3.15.45-4.5 1.2z" fill="#00832d"/><path d="m59.8 53h-32.3l-13.75 23.8c1.35.8 2.9 1.2 4.5 1.2h50.8c1.6 0 3.15-.45 4.5-1.2z" fill="#2684fc"/><path d="m73.4 26.5-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3l-13.75 23.8 16.15 28h27.45c0-1.55-.4-3.1-1.2-4.5z" fill="#ffba00"/></svg>
+      <div class="grow"><b id="drive-name"></b><div class="small muted" id="drive-sub"></div></div>
+      <button type="button" class="ghost small-btn" id="change-folder">Change folder</button>
+      <button type="button" class="link small hidden" id="signout">Sign out</button>
+    </div>
+    <nav class="tabs">
+      <button type="button" class="on" data-tab="check">Check a course</button>
+      <button type="button" data-tab="audit">Audit whole folder</button>
+    </nav>
+
+    <!-- TAB 1: check a course -->
+    <section id="tab-check">
+      <div class="card">
+        <form id="lookup" class="row" autocomplete="off">
+          <div style="width:170px"><label for="num">Course number</label><input id="num" type="text" placeholder="e.g. ECEN 314" required></div>
+          <div class="grow"><label for="name">Course name <span class="muted">(optional)</span></label><input id="name" type="text" placeholder="e.g. Signals and Systems"></div>
+          <button class="btn" id="go">Check</button>
+        </form>
+        <div id="lookup-out"></div>
+      </div>
+
+      <div class="card hidden" id="editor-card">
+        <div class="row" style="justify-content:space-between;align-items:baseline;margin-bottom:10px">
+          <h2 id="editor-title" style="margin:0">Paste your learning objectives</h2>
+          <button type="button" class="link small" id="open-verbs">Allowed verbs</button>
+        </div>
+        <div class="editor">
+          <div class="backdrop" id="backdrop" aria-hidden="true"></div>
+          <textarea id="ta" spellcheck="true" placeholder="One objective per line, e.g.&#10;Analyze the frequency response of LTI systems.&#10;Design a digital filter for a given specification."></textarea>
+        </div>
+        <div class="bar">
+          <div id="status"></div>
+          <button class="btn hidden" id="fix-all" type="button">Fix all</button>
+        </div>
+        <div id="fixbar" class="small muted" style="margin-top:6px"></div>
+        <div class="problems" id="problems"></div>
+      </div>
+    </section>
+
+    <!-- TAB 2: audit whole folder -->
+    <section id="tab-audit" class="hidden">
+      <div class="card">
+        <h2 style="margin-bottom:6px">Audit every syllabus in <span id="audit-folder">this folder</span></h2>
+        <p class="muted small" style="margin:0 0 14px">Finds courses with avoid-list verbs, vague wording, or missing objectives, and suggests fixes.</p>
+        <div class="row">
+          <button class="btn" id="run-audit" type="button">Run audit</button>
+          <button class="ghost hidden" id="audit-csv" type="button">Download CSV</button>
+        </div>
+        <div id="audit-out"></div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<dialog id="verbs-dlg">
+  <div class="dlg-head"><b>Allowed action verbs</b><button class="ghost" type="button" id="close-verbs" style="padding:5px 11px">Close</button></div>
+  <div class="dlg-body">
+    <p class="muted small" style="margin:10px 0 0">Click a verb to add it where your cursor is.</p>
+    <div id="verb-ref"></div>
+    <div class="lvl"><h4>Avoid these</h4><div class="chips bad" id="avoid-ref"></div></div>
+  </div>
+</dialog>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+let CFG = {}, VERBS = null, AVOID_RE = null, TERM = {};
+let gToken = null, gTokenExp = 0, tokenClient = null, folderName = "";
+let aiResults = null, aiSeq = 0, aiTimer = null, lastAiText = "", aiState = "";
+
+/* =========== regex layer (instant, in the browser) =========== */
+function buildRegex(){
+  VERBS.avoid_terms.forEach(t => TERM[t.term] = t);
+  const alt = VERBS.avoid_terms.map(t => t.term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+")).join("|");
+  AVOID_RE = new RegExp("\\b(" + alt + ")\\b", "gi");
+}
+const LEAD_IN = /^\s*(?:(?:the\s+)?students?|upon|after|by the end|at the end|on completion)\b.*(?:able\s+to|will|should|can)\s*:?\s*$/i;
+const isObjLine = l => /[A-Za-z]{3}/.test(l) && !LEAD_IN.test(l);
+const STEM = /^\s*(?:[-*\u2022\u25cf\u25aa\u2013\u2014>]+|\(?[0-9ivxlcIVXLC]{1,4}[.)\]:]|\(?[a-zA-Z][.)\]])?\s*(?:(?:upon|after|by the end of)[^,:]*?[,:]\s*)?(?:(?:the\s+)?students?\s+(?:will|should|shall|can|must)\s+(?:be\s+able\s+to\s+)?)?(?:(?:be\s+)?able\s+to\s+)?(?:swbat\s+)?(?:to\s+)?/i;
+function allowedLookup(w){
+  w = w.toLowerCase(); const c = [w];
+  if (w.endsWith("ies")) c.push(w.slice(0,-3)+"y");
+  if (w.endsWith("es")) c.push(w.slice(0,-2));
+  if (w.endsWith("s")) c.push(w.slice(0,-1));
+  if (w.endsWith("ed")) c.push(w.slice(0,-2), w.slice(0,-1));
+  if (w.endsWith("ing")) c.push(w.slice(0,-3), w.slice(0,-3)+"e");
+  for (const x of c) if (VERBS.allowed[x]) return [x, VERBS.allowed[x]];
+  return null;
+}
+function leadingVerb(line){
+  const stemLen = (line.match(STEM) || [""])[0].length;
+  const m = line.slice(stemLen).match(/^([A-Za-z][A-Za-z\-]*)(?:\s+(down|out|up|of|examples))?/);
+  if (!m) return null;
+  let word = m[1];
+  if (m[2] && VERBS.allowed[(m[1]+" "+m[2]).toLowerCase()]) word = m[1]+" "+m[2];
+  return {word, start: stemLen, end: stemLen + word.length};
+}
+function regexRanges(text){
+  const ranges = []; let m; AVOID_RE.lastIndex = 0;
+  while ((m = AVOID_RE.exec(text))){
+    const t = TERM[m[0].toLowerCase().replace(/\s+/g," ")] || {base:m[0].toLowerCase()};
+    const sug = VERBS.suggestions[t.base] || [];
+    ranges.push({start:m.index, end:m.index+m[0].length, cls:"avoid", base:t.base,
+      title:`"${t.base}" isn't allowed` + (sug.length ? `. Try ${sug.join(", ")}` : "")});
+  }
+  let off = 0;
+  for (const line of text.split("\n")){
+    if (isObjLine(line)){
+      const lv = leadingVerb(line);
+      if (lv && !allowedLookup(lv.word)){
+        const s = off + lv.start, e = off + lv.end;
+        if (!ranges.some(r => r.start < e && r.end > s))
+          ranges.push({start:s, end:e, cls:"warn", title:`"${lv.word}" isn't on the allowed verb list`});
+      }
+    }
+    off += line.length + 1;
+  }
+  return ranges;
+}
+function spanRanges(text, issues){
+  const out = [];
+  (issues || []).forEach(is => {
+    const k = is.span ? text.toLowerCase().indexOf(String(is.span).toLowerCase()) : -1;
+    if (k >= 0) out.push({start:k, end:k+is.span.length, cls:"ai", title:is.reason || ""});
+  });
+  return out;
+}
+function merged(text, extra){
+  const rr = regexRanges(text);
+  return [...rr.filter(r => r.cls !== "warn" || !extra.some(a => a.start < r.end && a.end > r.start)), ...extra];
+}
+function paint(text, ranges, forView){
+  const pri = {avoid:0, ai:1, warn:2};
+  ranges = ranges.slice().sort((a,b) => a.start-b.start || pri[a.cls]-pri[b.cls]);
+  let html = "", i = 0;
+  for (const r of ranges){
+    if (r.start < i) continue;
+    html += esc(text.slice(i, r.start)) + `<mark class="${r.cls}" title="${esc(r.title)}">${esc(text.slice(r.start, r.end))}</mark>`;
+    i = r.end;
+  }
+  return html + esc(text.slice(i)) + (forView ? "" : "\n");
+}
+const viewHTML = (text, issues) => paint(text, merged(text, spanRanges(text, issues)), true);
+
+/* =========== objectives editor =========== */
+const ta = $("#ta"), bd = $("#backdrop");
+function aiFresh(){ return aiResults && lastAiText === ta.value; }
+function aiRangesInEditor(text){
+  if (!aiFresh()) return [];
+  const out = []; let cursor = 0;
+  aiResults.objectives.forEach((o, i) => {
+    const pos = text.indexOf(o, cursor); if (pos < 0) return; cursor = pos + o.length;
+    const r = (aiResults.llm || []).find(x => x.index === i);
+    if (r) spanRanges(o, r.issues).forEach(x => out.push({...x, start:x.start+pos, end:x.end+pos}));
+  });
+  return out;
+}
+/* one list of problems, from AI when available, otherwise from regex */
+function problems(){
+  const text = ta.value, lines = text.split("\n").filter(isObjLine);
+  if (aiFresh() && aiResults.llm){
+    return aiResults.objectives.map((o, i) => {
+      const a = aiResults.llm.find(x => x.index === i) || {}, rx = aiResults.regex[i] || {flags:[]};
+      let status = a.status || rx.status;
+      if (rx.flags.length && status === "ok") status = "avoid";
+      if (status === "ok") return null;
+      const covered = rx.flags.map(f => f.match.toLowerCase());
+      const why = [...rx.flags.map(f => `"${f.base}" isn't allowed`),
+                   ...(a.issues || []).filter(x => x.reason && !covered.includes(String(x.span||"").toLowerCase())).map(x => x.reason)];
+      if (!why.length && status === "not_listed") why.push(`"${a.leading_verb || rx.leading_verb}" isn't on the allowed verb list`);
+      const swapped = swapLeadingAvoid(o);
+      const fix = a.suggestion || (swapped !== o ? swapped.replace(/^\s*(?:[-*•]|\(?\d+[.)])\s*/, "") : null);
+      return {i, text:o, why:[...new Set(why)], issues:a.issues, fix};
+    }).filter(Boolean);
+  }
+  return lines.map((line, i) => {
+    const rr = regexRanges(line), avoid = rr.filter(r => r.cls === "avoid"), warn = rr.find(r => r.cls === "warn");
+    if (!avoid.length && !warn) return null;
+    const why = avoid.map(r => r.title); if (warn) why.push(warn.title);
+    const fixed = swapLeadingAvoid(line);
+    return {i, text:line, why, fix: fixed !== line ? fixed.replace(/^\s*(?:[-*\u2022]|\(?\d+[.)])\s*/, "") : null};
+  }).filter(Boolean);
+}
+function render(){
+  const text = ta.value;
+  bd.innerHTML = paint(text, merged(text, aiRangesInEditor(text)));
+  bd.scrollTop = ta.scrollTop;
+  const n = text.split("\n").filter(isObjLine).length, probs = n ? problems() : [];
+  const st = $("#status");
+  if (!n) st.innerHTML = "";
+  else if (aiState === "busy") st.innerHTML = `<span class="spin"></span><span class="muted">Checking with AI…</span>`;
+  else if (!probs.length) st.innerHTML = `<span class="ok">&#10003; All ${n} objective${n>1?"s":""} look good</span>`;
+  else st.innerHTML = `<span class="bad">${probs.length} of ${n} need${probs.length===1?"s":""} a fix</span>` +
+       (aiState === "off" ? ` <span class="muted small">· AI unavailable, basic check only</span>` : "");
+  $("#fix-all").classList.toggle("hidden", !probs.some(p => p.fix) || aiState === "busy");
+  $("#problems").innerHTML = probs.map(p => `<div class="problem">
+      <div class="view">${viewHTML(p.text, p.issues)}</div>
+      <div class="why">${p.why.map(esc).join(" · ")}</div>
+      ${p.fix ? `<div class="fix"><span>${esc(p.fix)}</span><button class="ghost" data-use="${p.i}">Use</button></div>` : ""}
+    </div>`).join("");
+}
+ta.addEventListener("input", () => { $("#fixbar").innerHTML = ""; render(); scheduleAI(); });
+ta.addEventListener("scroll", () => bd.scrollTop = ta.scrollTop);
+new ResizeObserver(() => { bd.style.height = ta.offsetHeight + "px"; }).observe(ta);
+
+function scheduleAI(){
+  clearTimeout(aiTimer);
+  if (!CFG.llm_configured || !ta.value.trim()) { aiState = CFG.llm_configured ? "" : "off"; render(); return; }
+  aiTimer = setTimeout(runAI, 1200);
+}
+async function runAI(){
+  const text = ta.value; if (!text.trim()) return;
+  const seq = ++aiSeq; aiState = "busy"; render();
+  try{
+    const data = await (await fetch("/api/check", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({text, use_llm:true})})).json();
+    if (seq !== aiSeq) return;
+    if (data.llm){ aiResults = data; lastAiText = text; aiState = ""; }
+    else { aiResults = null; aiState = "off"; }
+  }catch(e){ if (seq === aiSeq){ aiResults = null; aiState = "off"; } }
+  if (seq === aiSeq) render();
+}
+function replaceLine(oldText, newBody){
+  const stem = (oldText.match(/^\s*(?:[-*\u2022]|\(?\d+[.)])\s*/) || [""])[0];
+  ta.value = ta.value.replace(oldText, stem + newBody);
+}
+$("#problems").addEventListener("click", e => {
+  const i = e.target.dataset.use; if (i === undefined) return;
+  const p = problems().find(x => x.i === +i); if (!p || !p.fix) return;
+  replaceLine(p.text, p.fix); render(); scheduleAI();
+});
+
+/* Fix all */
+function swapLeadingAvoid(line){
+  const lv = leadingVerb(line); if (!lv) return line;
+  const t = TERM[lv.word.toLowerCase()]; if (!t || t.kind !== "verb") return line;
+  const sug = (VERBS.suggestions[t.base] || [])[0]; if (!sug) return line;
+  return line.slice(0, lv.start) + (lv.word[0] === lv.word[0].toUpperCase() ? sug : sug.toLowerCase()) + line.slice(lv.end);
+}
+$("#fix-all").onclick = () => {
+  const before = ta.value; let n = 0;
+  problems().forEach(p => { if (p.fix && ta.value.includes(p.text)){ replaceLine(p.text, p.fix); n++; } });
+  if (!n) return;
+  aiResults = null; render(); scheduleAI();
+  $("#fixbar").innerHTML = `&#10003; Fixed ${n}. <button class="link" id="undo">Undo</button>`;
+  $("#undo").onclick = () => { ta.value = before; $("#fixbar").innerHTML = ""; aiResults = null; render(); scheduleAI(); };
+};
+
+/* verbs dialog */
+$("#open-verbs").onclick = () => $("#verbs-dlg").showModal();
+$("#close-verbs").onclick = () => $("#verbs-dlg").close();
+$("#verbs-dlg").addEventListener("click", e => { if (e.target.id === "verbs-dlg") e.target.close(); });
+function insertVerb(v){
+  const s = ta.selectionStart ?? ta.value.length, e = ta.selectionEnd ?? s;
+  ta.value = ta.value.slice(0,s) + v + " " + ta.value.slice(e);
+  $("#verbs-dlg").close(); ta.focus(); ta.selectionStart = ta.selectionEnd = s + v.length + 1;
+  render(); scheduleAI();
+}
+
+/* =========== course lookup =========== */
+$("#lookup").addEventListener("submit", async e => {
+  e.preventDefault();
+  const btn = $("#go"); btn.disabled = true; btn.innerHTML = '<span class="spin"></span>Checking';
+  $("#lookup-out").innerHTML = "";
+  try{
+    const r = await fetch("/api/lookup", {method:"POST", headers:authHeaders(),
+      body: JSON.stringify({folder_link: folderLink(), course_number: $("#num").value, course_name: $("#name").value})});
+    showLookup(await r.json());
+  }catch(err){
+    $("#lookup-out").innerHTML = `<div class="note bad"><b>Couldn't reach the app server.</b>Is it still running?</div>`;
+  }finally{ btn.disabled = false; btn.textContent = "Check"; }
+});
+function showLookup(d){
+  const out = $("#lookup-out"), ed = $("#editor-card");
+  if (d.status === "error"){
+    out.innerHTML = `<div class="note bad"><b>Can't read the folder</b>${esc(d.message)}</div>`;
+    if (d.needs_signin) showSetup(d.message);
+    return;
+  }
+  const label = esc([d.course.number, d.course.name].filter(Boolean).join(" · "));
+  const f = d.objectives && d.objectives.file;
+  const fileLink = f ? (f.link ? `<a href="${esc(f.link)}" target="_blank" rel="noopener">${esc(f.name)}</a>` : esc(f.name)) : "";
+  let h = "";
+  if (d.status === "exists")
+    h = `<div class="note good"><b>${label} already exists</b>Found in ${fileLink}. Its learning objectives:</div>`;
+  else if (d.status === "similar_name")
+    h = `<div class="note warn"><b>A course with this name already exists</b>${fileLink} has a different number. Check it's not the same course.</div>`;
+  else
+    h = `<div class="note info"><b>${label} isn't in the folder yet</b>Paste the learning objectives below to check them.</div>`;
+  if (d.objectives){
+    const o = d.objectives;
+    h += o.items.length ? `<ol class="objs view">${o.items.map(t => `<li>${viewHTML(t)}</li>`).join("")}</ol>
+         <p class="small" style="margin:12px 0 0"><button class="link" id="revise">Check or revise these objectives</button></p>`
+       : `<p class="muted small">${esc(o.note || "No learning objectives section found in that file.")}</p>`;
+  }
+  out.innerHTML = h;
+  if (d.status === "exists") ed.classList.add("hidden");
+  else { ed.classList.remove("hidden"); $("#editor-title").textContent = "Paste your learning objectives"; }
+  const rv = $("#revise");
+  if (rv) rv.onclick = () => {
+    ed.classList.remove("hidden"); $("#editor-title").textContent = "Revise the objectives";
+    ta.value = d.objectives.items.join("\n"); aiResults = null; render(); scheduleAI();
+    ed.scrollIntoView({behavior:"smooth"});
+  };
+}
+
+/* =========== tabs =========== */
+document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => {
+  document.querySelectorAll(".tabs button").forEach(x => x.classList.toggle("on", x === b));
+  $("#tab-check").classList.toggle("hidden", b.dataset.tab !== "check");
+  $("#tab-audit").classList.toggle("hidden", b.dataset.tab !== "audit");
+});
+
+/* =========== folder + Google sign-in =========== */
+const folderLink = () => $("#folder").value.trim();
+function authHeaders(){
+  const h = {"Content-Type":"application/json"};
+  if (gToken && gTokenExp > Date.now()) h["X-Google-Token"] = gToken;
+  return h;
+}
+function showSetup(msg){
+  $("#setup").classList.remove("hidden"); $("#app").classList.add("hidden");
+  $("#folder-msg").className = msg ? "bad" : "muted"; $("#folder-msg").innerHTML = msg ? esc(msg) : "";
+  const signed = gToken && gTokenExp > Date.now();
+  $("#signin").classList.toggle("hidden", !tokenClient || signed);
+}
+function showApp(name, files, access){
+  folderName = name;
+  $("#setup").classList.add("hidden"); $("#app").classList.remove("hidden");
+  $("#drive-name").textContent = access === "local" ? "Sample syllabi (not Google Drive)" : name;
+  $("#drive-sub").textContent = `${files} syllabi` + ({user:" · connected with your Google account", service_account:" · connected with the service account", api_key:" · public link"}[access] || "");
+  $("#signout").classList.toggle("hidden", !(gToken && gTokenExp > Date.now()));
+  $("#change-folder").textContent = access === "local" ? "Connect Google Drive" : "Change folder";
+  $("#audit-folder").textContent = name;
+}
+$("#change-folder").onclick = () => { if (!folderName || $("#drive-name").textContent.startsWith("Sample")) $("#folder").value = ""; showSetup(""); $("#folder").focus(); };
+$("#signout").onclick = () => {
+  try{ google.accounts.oauth2.revoke(gToken, () => {}); }catch(e){}
+  gToken = null; gTokenExp = 0; try{ sessionStorage.removeItem("gtok"); }catch(e){}
+  showSetup("Signed out.");
+};
+$("#use-samples").onclick = () => { $("#folder").value = ""; connectFolder(); };
+$("#folder-form").addEventListener("submit", e => { e.preventDefault(); connectFolder(); });
+
+function setupGoogle(){
+  if (!CFG.google_client_id) return;
+  const sc = document.createElement("script");
+  sc.src = "https://accounts.google.com/gsi/client"; sc.async = true;
+  sc.onload = () => {
+    tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: CFG.google_client_id,
+      scope: "https://www.googleapis.com/auth/drive.readonly",
+      callback: r => {
+        if (r.error) { showSetup("Google sign-in didn't finish. Try again."); return; }
+        gToken = r.access_token; gTokenExp = Date.now() + (Number(r.expires_in || 3600) - 60) * 1000;
+        try{ sessionStorage.setItem("gtok", JSON.stringify({token:gToken, exp:gTokenExp})); }catch(e){}
+        connectFolder();
+      },
+    });
+    if (!$("#setup").classList.contains("hidden")) showSetup($("#folder-msg").textContent);
+  };
+  document.head.appendChild(sc);
+}
+$("#signin").onclick = () => tokenClient && tokenClient.requestAccessToken();
+
+let connectSeq = 0;
+async function connectFolder(){
+  const link = folderLink(), seq = ++connectSeq;
+  try{ localStorage.setItem("folderLink", link); }catch(e){}
+  $("#folder-msg").className = "muted"; $("#folder-msg").innerHTML = '<span class="spin"></span>Connecting…';
+  try{
+    const d = await (await fetch("/api/folder", {method:"POST", headers:authHeaders(), body:JSON.stringify({folder_link:link})})).json();
+    if (seq !== connectSeq) return;
+    if (d.ok){
+      if (folderName && folderName !== d.folder_name){ $("#lookup-out").innerHTML = ""; resetAudit(); }
+      showApp(d.folder_name, d.files, d.access);
+    } else {
+      let msg = d.message;
+      if (d.needs_signin && !CFG.google_client_id) msg += " (Google sign-in isn't set up: add GOOGLE_CLIENT_ID to .env.)";
+      showSetup(msg);
+    }
+  }catch(e){ if (seq === connectSeq) showSetup("Couldn't reach the app server."); }
+}
+
+/* =========== whole-folder audit =========== */
+let auditJob = null, auditData = null, auditFilter = "all", auditOpen = new Set(), auditTimer = null;
+const GROUP = r => r.status === "clean" ? "clean" : (r.status === "no_objectives" || r.status === "unreadable") ? "missing" : "issues";
+function resetAudit(){
+  auditJob = null; auditData = null; clearTimeout(auditTimer);
+  $("#audit-out").innerHTML = ""; $("#audit-csv").classList.add("hidden");
+  const b = $("#run-audit"); b.disabled = false; b.textContent = "Run audit";
+}
+$("#run-audit").onclick = async () => {
+  const btn = $("#run-audit"); resetAudit(); btn.disabled = true; btn.innerHTML = '<span class="spin"></span>Starting';
+  try{
+    const d = await (await fetch("/api/audit", {method:"POST", headers:authHeaders(), body:JSON.stringify({folder_link:folderLink(), use_llm:true})})).json();
+    if (!d.ok){ $("#audit-out").innerHTML = `<div class="note bad"><b>Can't audit this folder</b>${esc(d.message)}</div>`; if (d.needs_signin) showSetup(d.message); resetBtn(); return; }
+    auditJob = d.job_id; btn.innerHTML = '<span class="spin"></span>Auditing'; pollAudit();
+  }catch(e){ $("#audit-out").innerHTML = `<div class="note bad"><b>Couldn't reach the app server.</b></div>`; resetBtn(); }
+};
+function resetBtn(){ const b = $("#run-audit"); b.disabled = false; b.textContent = auditData ? "Run again" : "Run audit"; }
+async function pollAudit(){
+  const job = auditJob;
+  try{
+    const d = await (await fetch(`/api/audit/${job}`)).json();
+    if (job !== auditJob) return;
+    if (!d.ok){ $("#audit-out").innerHTML = `<p class="muted">${esc(d.message)}</p>`; resetBtn(); return; }
+    auditData = d; renderAudit();
+    if (!d.finished) auditTimer = setTimeout(pollAudit, 1200);
+    else { resetBtn(); $("#audit-csv").classList.remove("hidden"); }
+  }catch(e){ auditTimer = setTimeout(pollAudit, 2500); }
+}
+function renderAudit(){
+  const d = auditData, res = d.results;
+  const n = {issues:0, missing:0, clean:0}; res.forEach(r => n[GROUP(r)]++);
+  let h = "";
+  if (!d.finished){
+    const pct = d.total ? Math.round(100 * d.done / d.total) : 100;
+    h += `<div class="progress"><i style="width:${pct}%"></i></div><p class="muted small" style="margin:0">Checked ${d.done} of ${d.total} files…</p>`;
+  }
+  h += `<div class="stats">
+    <button class="stat s-issues ${auditFilter==="issues"?"on":""}" data-f="issues"><b>${n.issues}</b><span>Need fixes</span></button>
+    <button class="stat s-missing ${auditFilter==="missing"?"on":""}" data-f="missing"><b>${n.missing}</b><span>No objectives found</span></button>
+    <button class="stat s-clean ${auditFilter==="clean"?"on":""}" data-f="clean"><b>${n.clean}</b><span>All good</span></button></div>`;
+  if (d.summary.top_terms.length) h += `<p class="small muted" style="margin:0 0 12px">Most common problem words: ${d.summary.top_terms.slice(0,5).map(([t,c]) => `<b style="color:var(--bad)">${esc(t)}</b> (${c})`).join(", ")}</p>`;
+  const order = {issues:0, missing:1, clean:2};
+  const rows = res.filter(r => auditFilter === "all" || GROUP(r) === auditFilter)
+                  .sort((a,b) => order[GROUP(a)] - order[GROUP(b)] || a.course.localeCompare(b.course));
+  h += rows.map(r => {
+    const k = r.file.id || r.file.name, bad = r.objectives.filter(o => o.status !== "ok");
+    const body = r.objectives.length ? bad.map(o => `<div class="o"><div class="view">${viewHTML(o.text)}</div>
+          <div class="why">${[...o.avoid_terms.map(t => `"${t}" isn't allowed`), ...o.reasons].map(esc).join(" · ") || "Verb isn't on the allowed list"}</div>
+          ${o.suggestion ? `<div class="sug">&rarr; ${esc(o.suggestion)}</div>` : ""}</div>`).join("") || `<p class="muted small">No problems.</p>`
+        : `<p class="muted small">${esc(r.summary)}</p>`;
+    const link = r.file.link ? `<a href="${esc(r.file.link)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">open</a>` : "";
+    return `<details class="course" data-k="${esc(k)}" ${auditOpen.has(k) ? "open" : ""}><summary><i class="dot ${GROUP(r)}"></i><span class="name">${esc(r.course)}</span><span class="sum">${esc(r.summary)} ${link}</span></summary><div class="body">${body}</div></details>`;
+  }).join("");
+  if (auditFilter !== "all") h += `<p class="small" style="margin:8px 0 0"><button class="link" data-f="all">Show all courses</button></p>`;
+  $("#audit-out").innerHTML = h;
+}
+$("#audit-out").addEventListener("click", e => {
+  const t = e.target.closest("[data-f]"); if (!t) return;
+  auditFilter = auditFilter === t.dataset.f ? "all" : t.dataset.f; renderAudit();
+});
+$("#audit-out").addEventListener("toggle", e => {
+  const k = e.target.dataset && e.target.dataset.k; if (!k) return;
+  e.target.open ? auditOpen.add(k) : auditOpen.delete(k);
+}, true);
+$("#audit-csv").onclick = () => {
+  if (!auditData) return;
+  const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const rows = [["Course","File","Course result","Objective","Problem","Suggested rewrite","Link"]];
+  auditData.results.forEach(r => {
+    if (!r.objectives.length) rows.push([r.course, r.file.name, r.summary, "", "", "", r.file.link]);
+    r.objectives.forEach(o => rows.push([r.course, r.file.name, r.summary, o.text,
+      o.status === "ok" ? "" : [...o.avoid_terms.map(t => `"${t}" isn't allowed`), ...o.reasons].join("; ") || "Verb not on allowed list",
+      o.suggestion, r.file.link]));
+  });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob(["\ufeff" + rows.map(r => r.map(q).join(",")).join("\n")], {type:"text/csv"}));
+  a.download = `syllabus-audit-${(auditData.folder_name || "folder").replace(/[^\w-]+/g, "_")}.csv`; a.click();
+};
+
+/* =========== start =========== */
+async function init(){
+  VERBS = await (await fetch("/api/verbs")).json();
+  buildRegex();
+  $("#verb-ref").innerHTML = Object.entries(VERBS.blooms).map(([lvl, vs]) =>
+    `<div class="lvl"><h4>${esc(lvl)}</h4><div class="chips">${vs.map(v => `<button type="button" data-v="${esc(v)}">${esc(v)}</button>`).join("")}</div></div>`).join("");
+  $("#verb-ref").addEventListener("click", e => { if (e.target.dataset.v) insertVerb(e.target.dataset.v); });
+  $("#avoid-ref").innerHTML = [...VERBS.avoid_verbs, ...VERBS.avoid_phrases].map(v => `<span>${esc(v)}</span>`).join("");
+  try{ CFG = await (await fetch("/api/config")).json(); }catch(e){}
+  aiState = CFG.llm_configured ? "" : "off";
+  let saved = null; try{ saved = localStorage.getItem("folderLink"); }catch(e){}
+  $("#folder").value = saved ?? CFG.default_folder ?? "";
+  try{ const t = JSON.parse(sessionStorage.getItem("gtok") || "null"); if (t && t.exp > Date.now()){ gToken = t.token; gTokenExp = t.exp; } }catch(e){}
+  setupGoogle();
+  if (saved !== null || CFG.default_folder) connectFolder(); else showSetup("");
+  render();
+}
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+CSCE 606 Software Engineering
+Texas A&M University, Spring 2026
+
+Course Description
+Agile development, testing, and team projects.
+
+Course Learning Objectives
+By the end of this course, students will:
+- Apply agile practices to plan and deliver a software project.
+- Construct automated test suites for web applications.
+- Know the major software process models.
+- Critique code using peer review techniques.
+
+Textbook
+Engineering Software as a Service
