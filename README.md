@@ -12,7 +12,7 @@ Professor types a course number (and optionally a name). The app searches the sy
 
 **Faculty:** existing course → objectives appear with a **Copy objectives** button for Simple Syllabus. New or revised → paste objectives, problem verbs turn red, **Fix all** rewrites them with allowed verbs.
 
-**Coordinator:** the "Coordinator: review all courses" tab checks every syllabus in the folder and downloads an **Excel file**: each objective, the problem found, a suggested rewrite (allowed verbs only), and a **Status** dropdown (Pending / Approved / Needs changes) plus a comment column. Nothing is stored by the app.
+**Coordinator:** the "Coordinator: review all courses" tab checks every syllabus in the folder and downloads an **Excel file**: each objective, the problem found, a suggested rewrite (allowed verbs only), **overlaps** (objectives that are the same or nearly the same in another course), and a **Status** dropdown (Pending / Approved / Needs changes) plus a comment column. The Summary sheet has a polite, ready-to-send **note to faculty** for each course that needs changes, and the Overlaps sheet lists every matching pair. Nothing is stored by the app.
 
 Extras:
 - **Fix all**: rewrites every flagged objective in one click (AI rewrites; without AI it swaps avoid-list verbs like Understand → Explain). Undo is right there.
@@ -128,7 +128,8 @@ app/matcher.py   Course number/name matching + objective extraction regex
 app/llm.py       LLM calls (return None on any failure)
 app/sources.py   Drive folder links, sign-in / service account / API key access, text cache
 app/main.py      API: /api/folder, /api/lookup, /api/check, /api/audit, /api/audit/{id}/excel, /api/verbs, /api/config
-app/report.py    Builds the coordinator's Excel review file
+app/report.py    Builds the coordinator's Excel review file + faculty notes
+app/overlap.py   Finds near-identical objectives across courses
 static/index.html  The whole UI
 ```
 

@@ -26,6 +26,7 @@ from . import llm                                # noqa: E402
 from .matcher import (name_score, number_regex,  # noqa: E402
                       parse_course_number, regex_extract_objectives)
 from .sources import AccessError, Scanner, TextCache, fixed_folder, resolve_source  # noqa: E402
+from .overlap import find_overlaps                  # noqa: E402
 from .report import build_review_xlsx               # noqa: E402
 from .verbs import (ALLOWED, AVOID_PHRASES, AVOID_VERBS, BLOOMS,  # noqa: E402
                     SUGGESTIONS, avoid_terms, clean_objective, regex_check, split_objectives)
@@ -309,6 +310,11 @@ def start_audit(body: AuditIn, x_google_token: str | None = Header(default=None)
     def run():
         with ThreadPoolExecutor(max_workers=4) as ex:
             list(ex.map(one, files))
+        try:
+            job["overlaps"] = find_overlaps(job["results"])
+        except Exception as e:
+            log.warning("overlap check failed: %s", e)
+            job["overlaps"] = []
         job["finished"] = True
         job["took"] = round(time.time() - job["started"], 1)
 
@@ -335,7 +341,9 @@ def audit_status(job_id: str):
                         "avoid": counts["avoid"], "vague": counts["vague"],
                         "no_objectives": counts["no_objectives"], "unreadable": counts["unreadable"],
                         "objectives": n_obj, "objectives_flagged": n_bad,
-                        "top_terms": terms.most_common(8)},
+                        "top_terms": terms.most_common(8),
+                        "overlap_pairs": len(job.get("overlaps") or []),
+                        "overlap_courses": sum(1 for r in results if any(o.get("overlaps") for o in r["objectives"]))},
             "results": results}
 
 
@@ -345,7 +353,8 @@ def audit_excel(job_id: str):
     job = AUDITS.get(job_id)
     if not job or not job["finished"]:
         raise HTTPException(404, "Run the audit first (or it's still running).")
-    data = build_review_xlsx({"folder_name": job["folder_name"], "results": job["results"]})
+    data = build_review_xlsx({"folder_name": job["folder_name"], "results": job["results"],
+                              "overlaps": job.get("overlaps")})
     name = re.sub(r"[^\w-]+", "_", job["folder_name"] or "folder")
     fname = f"syllabus-review-{name}-{datetime.now().strftime('%Y-%m-%d')}.xlsx"
     return Response(data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

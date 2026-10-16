@@ -97,7 +97,10 @@ mark.warn{background:var(--warn-bg);box-shadow:inset 0 -2px 0 var(--warn)}
 .problem .fix button{font-size:13px;padding:5px 11px}
 
 /* audit */
-.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:14px 0}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:14px 0}
+@media (max-width:640px){.stats{grid-template-columns:repeat(2,1fr)}}
+.stat.s-overlap b{color:#1155cc}
+.course .o .dup{font-size:13px;color:#1155cc;margin-top:2px}
 .stat{background:#faf8f6;border:1px solid var(--line);border-radius:10px;padding:10px 12px;text-align:left}
 .stat b{display:block;font-size:22px;font-weight:600;line-height:1.2}
 .stat span{font-size:12.5px;color:var(--muted)}
@@ -198,7 +201,7 @@ dialog::backdrop{background:rgba(20,10,10,.35)}
     <section id="tab-audit" class="hidden">
       <div class="card">
         <h2 style="margin-bottom:6px">Review every syllabus in <span id="audit-folder">this folder</span></h2>
-        <p class="muted small" style="margin:0 0 14px">Checks every course's learning objectives, then gives you an Excel file: each objective, the problem found, a suggested rewrite using the allowed verbs, and a Status column (Pending / Approved / Needs changes) plus a comment column to fill in. Nothing is saved in the app.</p>
+        <p class="muted small" style="margin:0 0 14px">Checks every course's learning objectives and flags ones that are the same across courses. The Excel file has each objective, the problem found, a suggested rewrite using the allowed verbs, overlaps, a Status column (Pending / Approved / Needs changes), and a ready-to-send note for each course that needs changes. Nothing is saved in the app.</p>
         <div class="row">
           <button class="btn" id="run-audit" type="button">Run audit</button>
           <button class="ghost hidden" id="audit-csv" type="button">Download Excel for review</button>
@@ -633,19 +636,22 @@ function renderAudit(){
   h += `<div class="stats">
     <button class="stat s-issues ${auditFilter==="issues"?"on":""}" data-f="issues"><b>${n.issues}</b><span>Need fixes</span></button>
     <button class="stat s-missing ${auditFilter==="missing"?"on":""}" data-f="missing"><b>${n.missing}</b><span>No objectives found</span></button>
-    <button class="stat s-clean ${auditFilter==="clean"?"on":""}" data-f="clean"><b>${n.clean}</b><span>All good</span></button></div>`;
+    <button class="stat s-clean ${auditFilter==="clean"?"on":""}" data-f="clean"><b>${n.clean}</b><span>All good</span></button>
+    <button class="stat s-overlap ${auditFilter==="overlap"?"on":""}" data-f="overlap"><b>${d.finished ? (d.summary.overlap_courses || 0) : "…"}</b><span>Overlap other courses</span></button></div>`;
   if (d.summary.top_terms.length) h += `<p class="small muted" style="margin:0 0 12px">Most common problem words: ${d.summary.top_terms.slice(0,5).map(([t,c]) => `<b style="color:var(--bad)">${esc(t)}</b> (${c})`).join(", ")}</p>`;
   const order = {issues:0, missing:1, clean:2};
-  const rows = res.filter(r => auditFilter === "all" || GROUP(r) === auditFilter)
+  const hasDup = r => r.objectives.some(o => o.overlaps && o.overlaps.length);
+  const rows = res.filter(r => auditFilter === "all" || (auditFilter === "overlap" ? hasDup(r) : GROUP(r) === auditFilter))
                   .sort((a,b) => order[GROUP(a)] - order[GROUP(b)] || a.course.localeCompare(b.course));
   h += rows.map(r => {
-    const k = r.file.id || r.file.name, bad = r.objectives.filter(o => o.status !== "ok");
+    const k = r.file.id || r.file.name, bad = r.objectives.filter(o => o.status !== "ok" || (o.overlaps && o.overlaps.length));
     const body = r.objectives.length ? bad.map(o => `<div class="o"><div class="view">${viewHTML(o.text)}</div>
-          <div class="why">${[...o.avoid_terms.map(t => `"${t}" isn't allowed`), ...o.reasons].map(esc).join(" · ") || "Verb isn't on the allowed list"}</div>
-          ${o.suggestion ? `<div class="sug">&rarr; ${esc(o.suggestion)}</div>` : ""}</div>`).join("") || `<p class="muted small">No problems.</p>`
+          ${o.status !== "ok" ? `<div class="why">${[...o.avoid_terms.map(t => `"${t}" isn't allowed`), ...o.reasons].map(esc).join(" · ") || "Verb isn't on the allowed list"}</div>` : ""}
+          ${o.overlaps && o.overlaps.length ? `<div class="dup">Also in ${esc(o.overlaps.join(", "))}</div>` : ""}
+          ${o.status !== "ok" && o.suggestion ? `<div class="sug">&rarr; ${esc(o.suggestion)}</div>` : ""}</div>`).join("") || `<p class="muted small">No problems.</p>`
         : `<p class="muted small">${esc(r.summary)}</p>`;
     const link = r.file.link ? `<a href="${esc(r.file.link)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">open</a>` : "";
-    return `<details class="course" data-k="${esc(k)}" ${auditOpen.has(k) ? "open" : ""}><summary><i class="dot ${GROUP(r)}"></i><span class="name">${esc(r.course)}</span><span class="sum">${esc(r.summary)} ${link}</span></summary><div class="body">${body}</div></details>`;
+    return `<details class="course" data-k="${esc(k)}" ${auditOpen.has(k) ? "open" : ""}><summary><i class="dot ${GROUP(r)}"></i><span class="name">${esc(r.course)}</span><span class="sum">${esc(r.summary)}${hasDup(r) ? ` · <span style="color:#1155cc">overlaps another course</span>` : ""} ${link}</span></summary><div class="body">${body}</div></details>`;
   }).join("");
   if (auditFilter !== "all") h += `<p class="small" style="margin:8px 0 0"><button class="link" data-f="all">Show all courses</button></p>`;
   $("#audit-out").innerHTML = h;

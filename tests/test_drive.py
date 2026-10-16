@@ -221,7 +221,9 @@ def test_audit_excel(client):
     assert head[:4] == ["Course", "File", "#", "Learning objective"] and "Status" in head
     rows = [[c.value for c in row] for row in ws.iter_rows(min_row=2)]
     assert rows[0][0] == "ECEN 314" and "understand" in rows[0][4]          # problems sorted first
-    assert all(r[7] == "Pending" for r in rows)
+    assert all(r[8] == "Pending" for r in rows)
     assert any(dv.formula1 == '"Pending,Approved,Needs changes"' for dv in ws.data_validations.dataValidation)
-    assert "Summary" in wb.sheetnames
+    assert {"Summary", "Overlaps"} <= set(wb.sheetnames)
+    summ = {r[0]: r for r in wb["Summary"].iter_rows(min_row=2, values_only=True) if r and r[0]}
+    assert "understand" in summ["ECEN 314"][6] and "Simple Syllabus" in summ["ECEN 314"][6]
     assert client.get("/api/audit/nope/excel").status_code == 404
