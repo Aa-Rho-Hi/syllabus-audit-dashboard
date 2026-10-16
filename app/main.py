@@ -39,7 +39,7 @@ text_cache = TextCache(BASE / ".cache" / "text_cache.json")
 pool = ThreadPoolExecutor(max_workers=8)
 
 NO_CACHE = {"Cache-Control": "no-cache, must-revalidate"}   # always serve the newest page after a deploy
-APP_VERSION = "2026-10-16 r16 (verbs-only prompt, Use fix, no Drive screen)"
+APP_VERSION = "2026-10-16 r17 (Evaluate button, check-in-database label)"
 STRONG_NAME = 90
 POSSIBLE_NAME = 70
 

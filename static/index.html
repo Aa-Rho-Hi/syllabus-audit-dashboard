@@ -209,7 +209,7 @@ dialog::backdrop{background:rgba(20,10,10,.35)}
         <form id="lookup" class="row" autocomplete="off">
           <div style="width:170px"><label for="num">Course number</label><input id="num" type="text" placeholder="ECEN 314 or ECEN314" required title="With or without a space, any case"></div>
           <div class="grow"><label for="name">Course name <span class="muted">(optional)</span></label><input id="name" type="text" placeholder="e.g. Signals and Systems"></div>
-          <button class="btn" id="go">Check</button>
+          <button class="btn" id="go">Check if it's in database</button>
         </form>
         <div id="lookup-out"></div>
       </div>
@@ -225,7 +225,10 @@ dialog::backdrop{background:rgba(20,10,10,.35)}
         </div>
         <div class="bar">
           <div id="status"></div>
-          <button class="btn hidden" id="fix-all" type="button">Fix all</button>
+          <span class="row" style="gap:8px">
+            <button class="btn hidden" id="fix-all" type="button">Fix all</button>
+            <button class="btn" id="evaluate" type="button" disabled>Evaluate</button>
+          </span>
         </div>
         <div id="fixbar" class="small muted" style="margin-top:6px"></div>
         <div class="problems" id="problems"></div>
@@ -261,7 +264,7 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 let CFG = {}, VERBS = null, AVOID_RE = null, TERM = {};
 let gToken = null, gTokenExp = 0, tokenClient = null, folderName = "";
-let aiResults = null, aiSeq = 0, aiTimer = null, lastAiText = "", aiState = "";
+let aiResults = null, aiSeq = 0, aiTimer = null, lastAiText = "", aiState = "", evaluated = false, lastEvalText = "";
 
 /* =========== regex layer (instant, in the browser) =========== */
 function buildRegex(){
@@ -411,15 +414,23 @@ function render(){
   const text = ta.value;
   bd.innerHTML = paint(text, merged(text, aiRangesInEditor(text)));
   bd.scrollTop = ta.scrollTop;
-  const n = objectiveSpans(text).length, probs = n ? problems() : [];
+  const n = objectiveSpans(text).length;
+  if (!n) evaluated = false;
+  const ev = $("#evaluate");
+  ev.disabled = !n || aiState === "busy";
+  ev.textContent = evaluated && lastEvalText !== text ? "Evaluate again" : "Evaluate";
+  ev.classList.toggle("ghost", evaluated && lastEvalText === text);
+  ev.classList.toggle("btn", !(evaluated && lastEvalText === text));
+  const probs = n && evaluated ? problems() : [];
   const st = $("#status");
   if (!n) st.innerHTML = "";
+  else if (!evaluated) st.innerHTML = `<span class="muted small">${n} objective${n>1?"s":""}. Click Evaluate to check them.</span>`;
   else if (aiState === "busy") st.innerHTML = `<span class="spin"></span><span class="muted">Checking with AI…</span>`;
   else if (!probs.length) st.innerHTML = `<span class="ok">&#10003; All ${n} objective${n>1?"s":""} look good</span>`;
   else st.innerHTML = `<span class="bad">${probs.length} of ${n} need${probs.length===1?"s":""} a fix</span>` +
        (aiState === "off" ? ` <span class="muted small">· AI unavailable, basic check only</span>` : "");
   const ign = objectiveSpans(text).filter(sp => IGNORED.has(normObj(sp.text))).length;
-  if (n && aiState !== "busy" && ign) st.innerHTML += ` <span class="muted small">· ${ign} ignored <button class="link small" id="unignore">show again</button></span>`;
+  if (n && evaluated && aiState !== "busy" && ign) st.innerHTML += ` <span class="muted small">· ${ign} ignored <button class="link small" id="unignore">show again</button></span>`;
   $("#fix-all").classList.toggle("hidden", !probs.some(p => p.fix) || aiState === "busy");
   $("#problems").innerHTML = probs.map(p => `<div class="problem">
       <div class="view">${viewHTML(p.text, p.issues)}</div>
@@ -462,11 +473,17 @@ ta.addEventListener("paste", e => {
 ta.addEventListener("scroll", () => bd.scrollTop = ta.scrollTop);
 new ResizeObserver(() => { bd.style.height = ta.offsetHeight + "px"; }).observe(ta);
 
+/* No automatic AI: text changes just refresh the view; the Evaluate button runs the check. */
 function scheduleAI(){
   clearTimeout(aiTimer);
-  if (!CFG.llm_configured || !ta.value.trim()) { aiState = CFG.llm_configured ? "" : "off"; render(); return; }
-  aiTimer = setTimeout(runAI, 1200);
+  if (aiState !== "busy") aiState = CFG.llm_configured ? "" : "off";
+  render();
 }
+$("#evaluate").onclick = () => {
+  if (!ta.value.trim()) return;
+  evaluated = true; lastEvalText = ta.value; $("#fixbar").innerHTML = "";
+  if (CFG.llm_configured) runAI(); else { aiState = "off"; render(); }
+};
 async function runAI(){
   const text = ta.value; if (!text.trim()) return;
   const seq = ++aiSeq; aiState = "busy"; render();
@@ -536,7 +553,7 @@ $("#lookup").addEventListener("submit", async e => {
     showLookup(await r.json());
   }catch(err){
     $("#lookup-out").innerHTML = `<div class="note bad"><b>Couldn't reach the app server.</b>Is it still running?</div>`;
-  }finally{ btn.disabled = false; btn.textContent = "Check"; }
+  }finally{ btn.disabled = false; btn.textContent = "Check if it's in database"; }
 });
 function showLookup(d){
   const out = $("#lookup-out"), ed = $("#editor-card");
@@ -577,7 +594,7 @@ function showLookup(d){
   const rv = $("#revise");
   if (rv) rv.onclick = () => {
     ed.classList.remove("hidden"); $("#editor-title").textContent = "Revise the objectives";
-    ta.value = d.objectives.items.join("\n"); aiResults = null; render(); scheduleAI();
+    ta.value = d.objectives.items.join("\n"); aiResults = null; evaluated = false; render(); scheduleAI();
     ed.scrollIntoView({behavior:"smooth"});
   };
 }
