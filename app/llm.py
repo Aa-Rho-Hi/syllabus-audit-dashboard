@@ -126,8 +126,15 @@ def check_objectives(objectives: list[str]) -> list[dict] | None:
         + "\n".join(f"- {lvl}: {', '.join(v)}" for lvl, v in allowed_by_level.items())
         + f"\n\nVERBS TO AVOID: {', '.join(AVOID_VERBS)}"
         + f"\nPHRASES TO AVOID: {', '.join(AVOID_PHRASES)}"
-        + "\n\nAlso flag vague or unmeasurable wording that is a synonym of the avoid list "
-          "(e.g. 'learn', 'grasp', 'be exposed to', 'gain insight into', 'be aware').\n\n"
+        + "\n\nRules:\n"
+          "- Judge only words used as VERBS. Ignore nouns and adjectives even when they match a listed "
+          "word, e.g. 'design' in 'RTL design', 'experience' in 'lab experience', 'model' in 'a statistical model'.\n"
+          "- Any verb on the ALLOWED list is fine. Never mark an objective 'avoid' or 'not_listed' because "
+          "of a verb that is on the ALLOWED list.\n"
+          "- 'avoid' = uses a verb or phrase from the avoid lists. 'not_listed' = starts with a verb on neither list. "
+          "'vague' = only for genuinely unmeasurable wording that is a synonym of the avoid list "
+          "(e.g. 'learn', 'grasp', 'be exposed to', 'gain insight into', 'be aware').\n"
+          "- Suggested rewrites must start with an ALLOWED verb and keep the original meaning.\n\n"
           "For each objective return:\n"
           '{"index": n, "leading_verb": "...", "bloom_level": "Knowledge|Comprehension|'
           'Application|Analysis|Synthesis|Evaluation|null", '

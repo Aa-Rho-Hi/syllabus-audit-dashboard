@@ -95,6 +95,7 @@ mark.warn{background:var(--warn-bg);box-shadow:inset 0 -2px 0 var(--warn)}
 .problem .why{font-size:13.5px;color:var(--muted);margin-top:3px}
 .problem .fix{margin-top:8px;display:flex;gap:10px;align-items:center;justify-content:space-between;background:var(--good-bg);border-radius:6px;padding:7px 10px;font-size:14px}
 .problem .fix button{font-size:13px;padding:5px 11px}
+.problem .fix-btns{display:flex;gap:6px;flex:none}
 
 /* audit */
 .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:14px 0}
@@ -255,10 +256,14 @@ function leadingVerb(line){
   if (m[2] && VERBS.allowed[(m[1]+" "+m[2]).toLowerCase()]) word = m[1]+" "+m[2];
   return {word, start: stemLen, end: stemLen + word.length};
 }
+/* a listed verb right after these words is a noun ("an understanding", "lab experience"); listed phrases always count */
+const NOUN_BEFORE = /\b(?:a|an|the|this|that|these|those|their|its|his|her|our|your|my|any|some|prior|previous|hands-on|lab|laboratory|practical|work|industry|field|design|research|learning|user|student|good|basic|deep|clear|broad|first-hand|real-world)\s+$/i;
 function regexRanges(text){
   const ranges = []; let m; AVOID_RE.lastIndex = 0;
   while ((m = AVOID_RE.exec(text))){
-    const t = TERM[m[0].toLowerCase().replace(/\s+/g," ")] || {base:m[0].toLowerCase()};
+    const t = TERM[m[0].toLowerCase().replace(/\s+/g," ")] || {base:m[0].toLowerCase(), kind:"verb"};
+    const lineStart = text.lastIndexOf("\n", m.index - 1) + 1;
+    if (t.kind === "verb" && NOUN_BEFORE.test(text.slice(lineStart, m.index))) continue;
     const sug = VERBS.suggestions[t.base] || [];
     ranges.push({start:m.index, end:m.index+m[0].length, cls:"avoid", base:t.base,
       title:`"${t.base}" isn't allowed` + (sug.length ? `. Try ${sug.join(", ")}` : "")});
@@ -303,6 +308,8 @@ function paint(text, ranges, forView){
 const viewHTML = (text, issues) => paint(text, merged(text, spanRanges(text, issues)), true);
 
 /* =========== objectives editor =========== */
+const IGNORED = new Set();   // objectives the professor chose to handle themselves
+const normObj = t => String(t).replace(/^\s*(?:[-*\u2022]|\(?\d+[.)])\s*/, "").trim().toLowerCase();
 const ta = $("#ta"), bd = $("#backdrop");
 function aiFresh(){ return aiResults && lastAiText === ta.value; }
 function aiRangesInEditor(text){
@@ -323,7 +330,8 @@ function problems(){
       const a = aiResults.llm.find(x => x.index === i) || {}, rx = aiResults.regex[i] || {flags:[]};
       let status = a.status || rx.status;
       if (rx.flags.length && status === "ok") status = "avoid";
-      if (status === "ok") return null;
+      if (!rx.flags.length && rx.status === "ok" && (status === "avoid" || status === "not_listed")) status = "ok";  // approved verb: AI can't overrule the list
+      if (status === "ok" || IGNORED.has(normObj(o))) return null;
       const covered = rx.flags.map(f => f.match.toLowerCase());
       const why = [...rx.flags.map(f => `"${f.base}" isn't allowed`),
                    ...(a.issues || []).filter(x => x.reason && !covered.includes(String(x.span||"").toLowerCase())).map(x => x.reason)];
@@ -335,7 +343,7 @@ function problems(){
   }
   return lines.map((line, i) => {
     const rr = regexRanges(line), avoid = rr.filter(r => r.cls === "avoid"), warn = rr.find(r => r.cls === "warn");
-    if (!avoid.length && !warn) return null;
+    if ((!avoid.length && !warn) || IGNORED.has(normObj(line))) return null;
     const why = avoid.map(r => r.title); if (warn) why.push(warn.title);
     const fixed = swapLeadingAvoid(line);
     return {i, text:line, why, fix: fixed !== line ? fixed.replace(/^\s*(?:[-*\u2022]|\(?\d+[.)])\s*/, "") : null};
@@ -352,11 +360,14 @@ function render(){
   else if (!probs.length) st.innerHTML = `<span class="ok">&#10003; All ${n} objective${n>1?"s":""} look good</span>`;
   else st.innerHTML = `<span class="bad">${probs.length} of ${n} need${probs.length===1?"s":""} a fix</span>` +
        (aiState === "off" ? ` <span class="muted small">· AI unavailable, basic check only</span>` : "");
+  const ign = text.split("\n").filter(isObjLine).filter(l => IGNORED.has(normObj(l))).length;
+  if (n && aiState !== "busy" && ign) st.innerHTML += ` <span class="muted small">· ${ign} ignored <button class="link small" id="unignore">show again</button></span>`;
   $("#fix-all").classList.toggle("hidden", !probs.some(p => p.fix) || aiState === "busy");
   $("#problems").innerHTML = probs.map(p => `<div class="problem">
       <div class="view">${viewHTML(p.text, p.issues)}</div>
       <div class="why">${p.why.map(esc).join(" · ")}</div>
-      ${p.fix ? `<div class="fix"><span>${esc(p.fix)}</span><button class="ghost" data-use="${p.i}">Use</button></div>` : ""}
+      ${p.fix ? `<div class="fix"><span>${esc(p.fix)}</span><span class="fix-btns"><button class="ghost" data-use="${p.i}">Use</button><button class="ghost" data-ignore="${p.i}" title="Hide this suggestion and edit the objective yourself">Ignore</button></span></div>`
+             : `<div style="margin-top:8px"><button class="ghost" data-ignore="${p.i}" style="font-size:13px;padding:5px 11px">Ignore</button></div>`}
     </div>`).join("");
 }
 ta.addEventListener("input", () => { $("#fixbar").innerHTML = ""; render(); scheduleAI(); });
@@ -413,7 +424,13 @@ function replaceLine(oldText, newBody){
   const stem = (oldText.match(/^\s*(?:[-*\u2022]|\(?\d+[.)])\s*/) || [""])[0];
   ta.value = ta.value.replace(oldText, stem + newBody);
 }
+$("#status").addEventListener("click", e => { if (e.target.id === "unignore"){ IGNORED.clear(); render(); } });
 $("#problems").addEventListener("click", e => {
+  if (e.target.dataset.ignore !== undefined){
+    const p = problems().find(x => x.i === +e.target.dataset.ignore);
+    if (p){ IGNORED.add(normObj(p.text)); render(); }
+    return;
+  }
   const i = e.target.dataset.use; if (i === undefined) return;
   const p = problems().find(x => x.i === +i); if (!p || !p.fix) return;
   replaceLine(p.text, p.fix); render(); scheduleAI();
@@ -676,6 +693,11 @@ async function init(){
   $("#avoid-ref").innerHTML = [...VERBS.avoid_verbs, ...VERBS.avoid_phrases].map(v => `<span>${esc(v)}</span>`).join("");
   try{ CFG = await (await fetch("/api/config")).json(); }catch(e){}
   aiState = CFG.llm_configured ? "" : "off";
+  if (location.pathname.replace(/\/$/, "") === "/coordinator"){
+    document.querySelector('.tabs button[data-tab=audit]').click();
+  } else {
+    $(".tabs").classList.add("hidden");          // faculty only see the course check
+  }
   if (CFG.fixed_folder){ $("#folder").value = ""; connectFolder(); render(); return; }
   let saved = null; try{ saved = localStorage.getItem("folderLink"); }catch(e){}
   $("#folder").value = saved ?? CFG.default_folder ?? "";

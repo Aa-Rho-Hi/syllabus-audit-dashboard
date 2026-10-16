@@ -29,7 +29,8 @@ from .sources import AccessError, Scanner, TextCache, fixed_folder, resolve_sour
 from .overlap import find_overlaps                  # noqa: E402
 from .report import build_review_xlsx               # noqa: E402
 from .verbs import (ALLOWED, AVOID_PHRASES, AVOID_VERBS, BLOOMS,  # noqa: E402
-                    SUGGESTIONS, avoid_terms, clean_objective, regex_check, split_objectives)
+                    SUGGESTIONS, avoid_terms, clean_objective, final_status, regex_check,
+                    split_objectives)
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("app")
@@ -63,6 +64,12 @@ class CheckIn(BaseModel):
 
 @app.get("/")
 def index():
+    return FileResponse(BASE / "static" / "index.html")
+
+
+@app.get("/coordinator")
+def coordinator_page():
+    """Same page, opened in coordinator mode (shows the review-all-courses tab)."""
     return FileResponse(BASE / "static" / "index.html")
 
 
@@ -252,9 +259,7 @@ def _audit_one(sc: Scanner, f: dict, use_llm: bool) -> dict:
     objs = []
     for r in rx:
         a = next((x for x in (ai or []) if x.get("index") == r["index"]), {})
-        status = a.get("status") or r["status"]
-        if r["flags"] and status == "ok":
-            status = "avoid"
+        status = final_status(r, a)
         suggestion = a.get("suggestion") if status != "ok" else None
         if not suggestion and r["flags"] and r["leading_verb"] and r["flags"][0]["start"] == r["text"].find(r["leading_verb"]):
             sug = r["flags"][0]["suggest"]

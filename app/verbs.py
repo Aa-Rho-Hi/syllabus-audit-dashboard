@@ -252,6 +252,29 @@ def leading_verb(objective: str) -> tuple[str, str]:
     return one, body
 
 
+# A listed verb right after one of these is being used as a noun ("an understanding",
+# "the experience", "lab experience"), so it isn't flagged. Listed phrases are always flagged.
+NOUN_BEFORE_RE = re.compile(
+    r"\b(?:a|an|the|this|that|these|those|their|its|his|her|our|your|my|any|some|prior|previous|"
+    r"hands-on|lab|laboratory|practical|work|industry|field|design|research|learning|user|student|"
+    r"good|basic|deep|clear|broad|first-hand|real-world)\s+$", re.IGNORECASE)
+
+
+def used_as_noun(text: str, start: int, kind: str) -> bool:
+    return kind == "verb" and bool(NOUN_BEFORE_RE.search(text[:start]))
+
+
+def final_status(rx: dict, ai: dict | None) -> str:
+    """Combine the pattern check and the AI. The approved list is the authority on verbs:
+    the AI can't call an approved verb 'avoid'/'not listed', and can't clear a listed avoid word."""
+    status = (ai or {}).get("status") or rx["status"]
+    if rx["flags"] and status == "ok":
+        return "avoid"
+    if not rx["flags"] and rx["status"] == "ok" and status in ("avoid", "not_listed"):
+        return "ok"
+    return status
+
+
 def regex_check(text: str) -> list[dict]:
     """Per-objective regex verdicts. Never raises, never calls the network."""
     results = []
@@ -260,6 +283,8 @@ def regex_check(text: str) -> list[dict]:
         for m in AVOID_RE.finditer(obj):
             key = re.sub(r"\s+", " ", m.group(0).lower())
             t = _TERM_LOOKUP.get(key, {"base": key, "kind": "verb"})
+            if used_as_noun(obj, m.start(), t["kind"]):
+                continue
             flags.append({
                 "match": m.group(0), "start": m.start(), "end": m.end(),
                 "base": t["base"], "kind": t["kind"],

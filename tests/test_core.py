@@ -57,3 +57,33 @@ def test_messy_paste():
     assert len(r) == 5
     assert [x["status"] for x in r] == ["ok", "avoid", "ok", "ok", "avoid"]
     assert r[0]["text"].endswith("node voltage analysis.")
+
+
+def test_design_verb_and_noun_is_fine():
+    r = regex_check("Design high-level digital systems using Register-Transfer Level (RTL) design.")
+    assert r[0]["status"] == "ok" and r[0]["flags"] == []
+
+
+def test_avoid_words_used_as_nouns_are_skipped():
+    r = regex_check("Develop practical skills through hands-on lab experience.\nDesign a project with an understanding of users.")
+    assert r[0]["flags"] == []                                   # "lab experience" is a noun
+    assert [f["base"] for f in r[1]["flags"]] == ["understanding of"]   # listed phrase still counts
+    r = regex_check("Experience the design process.")            # leading verb is still flagged
+    assert r[0]["status"] == "avoid"
+
+
+def test_approved_list_beats_ai():
+    from app.verbs import final_status
+    rx = regex_check("Design high-level digital systems using RTL design.")[0]
+    assert final_status(rx, {"status": "not_listed"}) == "ok"
+    assert final_status(rx, {"status": "avoid"}) == "ok"
+    assert final_status(rx, {"status": "vague"}) == "vague"          # AI may still call wording vague
+    bad = regex_check("Understand RTL.")[0]
+    assert final_status(bad, {"status": "ok"}) == "avoid"            # AI can't clear an avoid word
+
+
+def test_coordinator_route():
+    from fastapi.testclient import TestClient
+    from app.main import app
+    c = TestClient(app)
+    assert c.get("/coordinator").status_code == 200 and "Coordinator" in c.get("/coordinator").text
