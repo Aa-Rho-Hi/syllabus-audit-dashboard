@@ -522,6 +522,7 @@ function showSetup(msg){
 }
 function showLibraryError(msg){
   $("#setup").classList.add("hidden"); $("#app").classList.remove("hidden");
+  $(".drivebar").classList.remove("hidden");
   $("#drive-name").textContent = "Syllabus library unavailable";
   $("#drive-sub").textContent = msg;
   $("#drive-sub").style.color = "var(--bad)";
@@ -529,6 +530,7 @@ function showLibraryError(msg){
 }
 function showApp(name, files, access){
   folderName = name;
+  $(".drivebar").classList.toggle("hidden", !!CFG.fixed_folder);   // department folder: nothing to show faculty
   $("#drive-sub").style.color = "";
   $("#setup").classList.add("hidden"); $("#app").classList.remove("hidden");
   $("#drive-name").textContent = access === "local" ? "Sample syllabi (not Google Drive)" : name;
