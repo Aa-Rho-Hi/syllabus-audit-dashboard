@@ -177,7 +177,7 @@ dialog::backdrop{background:rgba(20,10,10,.35)}
 
 <div class="wrap">
   <!-- folder setup: only shown until a folder is connected -->
-  <div class="card" id="setup" style="margin-top:22px">
+  <div class="card hidden" id="setup" style="margin-top:22px">
     <h2>Connect a Google Drive folder</h2>
     <p class="muted small" style="margin:-4px 0 12px">Paste the link to the folder with the syllabi. You'll sign in with Google so the app can read it (read-only).</p>
     <form id="folder-form" class="row" autocomplete="off">
@@ -781,12 +781,16 @@ async function init(){
   $("#who-role").textContent = coordinator ? "Coordinator" : "Professor";
   if (coordinator) document.querySelector('.tabs button[data-tab=audit]').click();
   else $(".tabs").classList.add("hidden");       // professors only see the course check
-  if (CFG.fixed_folder){ $("#folder").value = ""; connectFolder(); render(); return; }
+  if (CFG.fixed_folder){
+    // department folder: show the page right away; the folder check runs quietly behind it
+    $("#folder").value = ""; $("#app").classList.remove("hidden"); render(); connectFolder(); return;
+  }
   let saved = null; try{ saved = localStorage.getItem("folderLink"); }catch(e){}
   $("#folder").value = saved ?? CFG.default_folder ?? "";
   try{ const t = JSON.parse(sessionStorage.getItem("gtok") || "null"); if (t && t.exp > Date.now()){ gToken = t.token; gTokenExp = t.exp; } }catch(e){}
   setupGoogle();
-  if (saved !== null || CFG.default_folder) connectFolder(); else showSetup("");
+  showSetup("");
+  if (saved !== null || CFG.default_folder) connectFolder();
   render();
 }
 init();
