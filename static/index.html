@@ -167,9 +167,9 @@ dialog::backdrop{background:rgba(20,10,10,.35)}
       <b>I'm a professor</b>
       <span class="muted">Look up a course's objectives, or check and fix new ones before adding them to Simple Syllabus.</span>
     </a>
-    <a class="role" href="/coordinator">
+    <a class="role" href="/reviewer">
       <span class="role-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/></svg></span>
-      <b>I'm the coordinator</b>
+      <b>I'm a reviewer</b>
       <span class="muted">Review every course in the folder and download the Excel review file.</span>
     </a>
   </div>
@@ -200,7 +200,7 @@ dialog::backdrop{background:rgba(20,10,10,.35)}
     </div>
     <nav class="tabs">
       <button type="button" class="on" data-tab="check">Check a course</button>
-      <button type="button" data-tab="audit">Coordinator: review all courses</button>
+      <button type="button" data-tab="audit">Reviewer: review all courses</button>
     </nav>
 
     <!-- TAB 1: check a course -->
@@ -821,9 +821,9 @@ async function init(){
     $("#role-screen").classList.remove("hidden");
     return;
   }
-  const coordinator = path === "/coordinator";
+  const coordinator = path === "/reviewer" || path === "/coordinator";
   $("#who-bar").classList.remove("hidden");
-  $("#who-role").textContent = coordinator ? "Coordinator" : "Professor";
+  $("#who-role").textContent = coordinator ? "Reviewer" : "Professor";
   if (coordinator) document.querySelector('.tabs button[data-tab=audit]').click();
   else $(".tabs").classList.add("hidden");       // professors only see the course check
   if (CFG.fixed_folder){

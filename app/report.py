@@ -126,7 +126,7 @@ def build_review_xlsx(audit: dict) -> bytes:
     ws = wb.active
     ws.title = "Review"
     _header(ws, ["Course", "File", "#", "Learning objective", "Problem found", "Suggested rewrite",
-                 "Also in other courses", "Bloom level", "Status", "Coordinator comment"],
+                 "Also in other courses", "Bloom level", "Status", "Reviewer comment"],
             [12, 24, 4, 58, 36, 58, 26, 14, 16, 36])
     order = {"avoid": 0, "vague": 1, "no_objectives": 2, "unreadable": 3, "clean": 4}
     results = sorted(results, key=lambda r: (order.get(r["status"], 5), r["course"]))

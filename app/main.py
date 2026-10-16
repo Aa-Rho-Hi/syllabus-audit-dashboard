@@ -39,7 +39,7 @@ text_cache = TextCache(BASE / ".cache" / "text_cache.json")
 pool = ThreadPoolExecutor(max_workers=8)
 
 NO_CACHE = {"Cache-Control": "no-cache, must-revalidate"}   # always serve the newest page after a deploy
-APP_VERSION = "2026-10-16 r17 (Evaluate button, check-in-database label)"
+APP_VERSION = "2026-10-16 r18 (Reviewer role, Evaluate button)"
 STRONG_NAME = 90
 POSSIBLE_NAME = 70
 
@@ -69,7 +69,8 @@ def index():
 
 
 @app.get("/professor")
-@app.get("/coordinator")
+@app.get("/reviewer")
+@app.get("/coordinator")   # old link still works
 def role_page():
     """Same page; the path picks the view. "/" shows the role chooser."""
     return FileResponse(BASE / "static" / "index.html", headers=NO_CACHE)
