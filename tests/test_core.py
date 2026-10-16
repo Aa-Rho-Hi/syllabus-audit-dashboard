@@ -86,4 +86,6 @@ def test_coordinator_route():
     from fastapi.testclient import TestClient
     from app.main import app
     c = TestClient(app)
-    assert c.get("/coordinator").status_code == 200 and "Coordinator" in c.get("/coordinator").text
+    for path in ("/", "/professor", "/coordinator"):
+        r = c.get(path)
+        assert r.status_code == 200 and "I'm a professor" in r.text

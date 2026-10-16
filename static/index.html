@@ -30,6 +30,19 @@ header h1{font-size:18px;font-weight:600;margin:0;letter-spacing:.1px}
 .folder-chip span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .folder-chip button{background:#fff;color:var(--brand);font-size:12.5px;font-weight:600;padding:3px 10px;border-radius:99px}
 
+/* landing */
+header .who{display:flex;gap:12px;align-items:center;font-size:13.5px}
+header .who span{opacity:.85}
+header .who a{color:#fff;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.25);border-radius:99px;padding:4px 12px;text-decoration:none;font-weight:500}
+.role-intro{text-align:center;margin:56px 0 26px}
+.role-intro h2{font-size:26px;margin:0 0 6px}
+.roles{display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:680px;margin:0 auto}
+@media (max-width:640px){.roles{grid-template-columns:1fr}.role-intro{margin-top:32px}}
+.role{display:flex;flex-direction:column;gap:6px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:22px;text-decoration:none;color:var(--ink);transition:border-color .15s,box-shadow .15s,transform .15s}
+.role:hover,.role:focus-visible{border-color:var(--brand);box-shadow:0 6px 18px rgba(80,0,0,.08);transform:translateY(-1px);outline:none}
+.role b{font-size:17px}
+.role .muted{font-size:14px;line-height:1.45}
+.role-ico{width:46px;height:46px;border-radius:12px;background:var(--brand-soft);color:var(--brand);display:flex;align-items:center;justify-content:center;margin-bottom:6px}
 /* drive bar */
 .drivebar{display:flex;align-items:center;gap:12px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-top:22px;flex-wrap:wrap}
 .drivebar svg{width:26px;height:26px;flex:none}
@@ -137,9 +150,30 @@ dialog::backdrop{background:rgba(20,10,10,.35)}
 <body>
 <header>
   <div class="wrap">
-    <h1>Syllabus Audit</h1>
+    <h1><a href="/" style="color:inherit;text-decoration:none">Syllabus Audit</a></h1>
+    <div class="who hidden" id="who-bar"><span id="who-role"></span><a href="/" id="switch-role">Switch role</a></div>
   </div>
 </header>
+
+<!-- landing: pick a role (no login, just a redirect) -->
+<div class="wrap hidden" id="role-screen">
+  <div class="role-intro">
+    <h2>Welcome</h2>
+    <p class="muted">Check course learning objectives against the department's approved Bloom's verbs.</p>
+  </div>
+  <div class="roles">
+    <a class="role" href="/professor">
+      <span class="role-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c3 2 9 2 12 0v-5"/></svg></span>
+      <b>I'm a professor</b>
+      <span class="muted">Look up a course's objectives, or check and fix new ones before adding them to Simple Syllabus.</span>
+    </a>
+    <a class="role" href="/coordinator">
+      <span class="role-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/></svg></span>
+      <b>I'm the coordinator</b>
+      <span class="muted">Review every course in the folder and download the Excel review file.</span>
+    </a>
+  </div>
+</div>
 
 <div class="wrap">
   <!-- folder setup: only shown until a folder is connected -->
@@ -693,11 +727,17 @@ async function init(){
   $("#avoid-ref").innerHTML = [...VERBS.avoid_verbs, ...VERBS.avoid_phrases].map(v => `<span>${esc(v)}</span>`).join("");
   try{ CFG = await (await fetch("/api/config")).json(); }catch(e){}
   aiState = CFG.llm_configured ? "" : "off";
-  if (location.pathname.replace(/\/$/, "") === "/coordinator"){
-    document.querySelector('.tabs button[data-tab=audit]').click();
-  } else {
-    $(".tabs").classList.add("hidden");          // faculty only see the course check
+  const path = location.pathname.replace(/\/+$/, "");
+  if (path === ""){                               // landing: choose a role, nothing else loads
+    $("#setup").classList.add("hidden"); $("#app").classList.add("hidden");
+    $("#role-screen").classList.remove("hidden");
+    return;
   }
+  const coordinator = path === "/coordinator";
+  $("#who-bar").classList.remove("hidden");
+  $("#who-role").textContent = coordinator ? "Coordinator" : "Professor";
+  if (coordinator) document.querySelector('.tabs button[data-tab=audit]').click();
+  else $(".tabs").classList.add("hidden");       // professors only see the course check
   if (CFG.fixed_folder){ $("#folder").value = ""; connectFolder(); render(); return; }
   let saved = null; try{ saved = localStorage.getItem("folderLink"); }catch(e){}
   $("#folder").value = saved ?? CFG.default_folder ?? "";

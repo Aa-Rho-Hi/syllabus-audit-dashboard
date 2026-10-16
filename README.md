@@ -12,7 +12,9 @@ Professor types a course number (and optionally a name). The app searches the sy
 
 **Faculty:** existing course → objectives appear with a **Copy objectives** button for Simple Syllabus. New or revised → paste objectives, problem verbs turn red, **Fix all** rewrites them with allowed verbs, or **Ignore** a suggestion and edit the line yourself. Only words used as verbs are checked ("RTL design", "lab experience" are nouns), and the approved list always wins over the AI.
 
-**Coordinator:** open the site link + `/coordinator` (faculty never see this tab). The "Coordinator: review all courses" tab checks every syllabus in the folder and downloads an **Excel file**: each objective, the problem found, a suggested rewrite (allowed verbs only), **overlaps** (objectives that are the same or nearly the same in another course), and a **Status** dropdown (Pending / Approved / Needs changes) plus a comment column. The Summary sheet has a polite, ready-to-send **note to faculty** for each course that needs changes, and the Overlaps sheet lists every matching pair. Nothing is stored by the app.
+**Opening page:** two buttons, "I'm a professor" (`/professor`) and "I'm the coordinator" (`/coordinator`). No login, just a redirect; both links can be bookmarked.
+
+**Coordinator:** `/coordinator` (professors never see this tab). The "Coordinator: review all courses" tab checks every syllabus in the folder and downloads an **Excel file**: each objective, the problem found, a suggested rewrite (allowed verbs only), **overlaps** (objectives that are the same or nearly the same in another course), and a **Status** dropdown (Pending / Approved / Needs changes) plus a comment column. The Summary sheet has a polite, ready-to-send **note to faculty** for each course that needs changes, and the Overlaps sheet lists every matching pair. Nothing is stored by the app.
 
 Extras:
 - **Fix all**: rewrites every flagged objective in one click (AI rewrites; without AI it swaps avoid-list verbs like Understand → Explain). Undo is right there.

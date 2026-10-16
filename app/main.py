@@ -67,9 +67,10 @@ def index():
     return FileResponse(BASE / "static" / "index.html")
 
 
+@app.get("/professor")
 @app.get("/coordinator")
-def coordinator_page():
-    """Same page, opened in coordinator mode (shows the review-all-courses tab)."""
+def role_page():
+    """Same page; the path picks the view. "/" shows the role chooser."""
     return FileResponse(BASE / "static" / "index.html")
 
 
