@@ -648,34 +648,64 @@ async function connectFolder(){
   }catch(e){ if (seq === connectSeq) (CFG.fixed_folder ? showLibraryError : showSetup)("Couldn't reach the app server."); }
 }
 
-/* =========== whole-folder audit =========== */
-let auditJob = null, auditData = null, auditFilter = "all", auditOpen = new Set(), auditTimer = null;
+/* =========== whole-folder audit (one streaming request, nothing kept on the server) =========== */
+let auditData = null, auditFilter = "all", auditOpen = new Set(), auditAbort = null, auditPaint = 0;
 const GROUP = r => r.status === "clean" ? "clean" : (r.status === "no_objectives" || r.status === "unreadable") ? "missing" : "issues";
 function resetAudit(){
-  auditJob = null; auditData = null; clearTimeout(auditTimer);
+  if (auditAbort) auditAbort.abort();
+  auditAbort = null; auditData = null;
   $("#audit-out").innerHTML = ""; $("#audit-csv").classList.add("hidden");
   const b = $("#run-audit"); b.disabled = false; b.textContent = "Run audit";
 }
-$("#run-audit").onclick = async () => {
-  const btn = $("#run-audit"); resetAudit(); btn.disabled = true; btn.innerHTML = '<span class="spin"></span>Starting';
-  try{
-    const d = await (await fetch("/api/audit", {method:"POST", headers:authHeaders(), body:JSON.stringify({folder_link:folderLink(), use_llm:true})})).json();
-    if (!d.ok){ $("#audit-out").innerHTML = `<div class="note bad"><b>Can't audit this folder</b>${esc(d.message)}</div>`; if (d.needs_signin) showSetup(d.message); resetBtn(); return; }
-    auditJob = d.job_id; btn.innerHTML = '<span class="spin"></span>Auditing'; pollAudit();
-  }catch(e){ $("#audit-out").innerHTML = `<div class="note bad"><b>Couldn't reach the app server.</b></div>`; resetBtn(); }
-};
-function resetBtn(){ const b = $("#run-audit"); b.disabled = false; b.textContent = auditData ? "Run again" : "Run audit"; }
-async function pollAudit(){
-  const job = auditJob;
-  try{
-    const d = await (await fetch(`/api/audit/${job}`)).json();
-    if (job !== auditJob) return;
-    if (!d.ok){ $("#audit-out").innerHTML = `<p class="muted">${esc(d.message)}</p>`; resetBtn(); return; }
-    auditData = d; renderAudit();
-    if (!d.finished) auditTimer = setTimeout(pollAudit, 1200);
-    else { resetBtn(); $("#audit-csv").classList.remove("hidden"); }
-  }catch(e){ auditTimer = setTimeout(pollAudit, 2500); }
+function resetBtn(){ const b = $("#run-audit"); b.disabled = false; b.textContent = auditData && auditData.finished ? "Run again" : "Run audit"; }
+function partialTerms(results){
+  const c = {}; results.forEach(r => r.objectives.forEach(o => (o.avoid_terms || []).forEach(t => c[t] = (c[t] || 0) + 1)));
+  return Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 8);
 }
+function onAuditEvent(ev){
+  const d = auditData;
+  if (ev.type === "start"){ d.total = ev.total; d.folder_name = ev.folder_name; }
+  else if (ev.type === "result"){
+    d.results.push(ev.result); d.done++;
+    d.summary.top_terms = partialTerms(d.results);
+    if (Date.now() - auditPaint > 400){ auditPaint = Date.now(); renderAudit(); }
+  } else if (ev.type === "done"){
+    d.results = ev.results; d.overlaps = ev.overlaps; d.summary = ev.summary; d.took = ev.took;
+    d.done = d.total; d.finished = true;
+  }
+}
+$("#run-audit").onclick = async () => {
+  const btn = $("#run-audit"); resetAudit(); btn.disabled = true; btn.innerHTML = '<span class="spin"></span>Reviewing';
+  const ctrl = new AbortController(); auditAbort = ctrl;
+  auditData = {finished:false, done:0, total:0, folder_name:"", results:[], overlaps:[], summary:{top_terms:[], overlap_courses:0}};
+  try{
+    const r = await fetch("/api/audit", {method:"POST", headers:authHeaders(), signal:ctrl.signal,
+      body:JSON.stringify({folder_link:folderLink(), use_llm:true})});
+    if (!(r.headers.get("content-type") || "").includes("ndjson")){
+      const d = await r.json().catch(() => ({message:"The server didn't answer properly."}));
+      auditData = null;
+      $("#audit-out").innerHTML = `<div class="note bad"><b>Can't review this folder</b>${esc(d.message)}</div>`;
+      if (d.needs_signin) showSetup(d.message);
+      return;
+    }
+    const reader = r.body.getReader(), dec = new TextDecoder(); let buf = "";
+    for (;;){
+      const {value, done} = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, {stream:true});
+      let i;
+      while ((i = buf.indexOf("\n")) >= 0){
+        const line = buf.slice(0, i); buf = buf.slice(i + 1);
+        if (line.trim()) onAuditEvent(JSON.parse(line));
+      }
+    }
+    if (!auditData.finished) throw new Error("cut off");
+    renderAudit(); $("#audit-csv").classList.remove("hidden");
+  }catch(e){
+    if (e.name === "AbortError") return;
+    $("#audit-out").insertAdjacentHTML("afterbegin", `<div class="note bad"><b>The review stopped before it finished.</b>The connection dropped. Click Run again.</div>`);
+  }finally{ if (auditAbort === ctrl) resetBtn(); }
+};
 function renderAudit(){
   const d = auditData, res = d.results;
   const n = {issues:0, missing:0, clean:0}; res.forEach(r => n[GROUP(r)]++);
@@ -715,7 +745,20 @@ $("#audit-out").addEventListener("toggle", e => {
   const k = e.target.dataset && e.target.dataset.k; if (!k) return;
   e.target.open ? auditOpen.add(k) : auditOpen.delete(k);
 }, true);
-$("#audit-csv").onclick = () => { if (auditJob) window.location.href = `/api/audit/${auditJob}/excel`; };
+$("#audit-csv").onclick = async () => {
+  if (!auditData || !auditData.finished) return;
+  const b = $("#audit-csv"), label = b.textContent; b.disabled = true; b.innerHTML = '<span class="spin"></span>Building';
+  try{
+    const r = await fetch("/api/excel", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({folder_name: auditData.folder_name, results: auditData.results, overlaps: auditData.overlaps || []})});
+    if (!r.ok) throw new Error(await r.text());
+    const name = (r.headers.get("content-disposition") || "").match(/filename="([^"]+)"/);
+    const a = document.createElement("a"); a.href = URL.createObjectURL(await r.blob());
+    a.download = name ? name[1] : "syllabus-review.xlsx"; document.body.appendChild(a); a.click(); a.remove();
+  }catch(e){ alertBox("Couldn't build the Excel file. Try again."); }
+  finally{ b.disabled = false; b.textContent = label; }
+};
+function alertBox(msg){ $("#audit-out").insertAdjacentHTML("afterbegin", `<div class="note bad">${esc(msg)}</div>`); }
 
 /* =========== start =========== */
 async function init(){

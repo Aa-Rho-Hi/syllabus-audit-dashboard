@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import logging
-from concurrent.futures import ThreadPoolExecutor
+import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -11,14 +12,12 @@ load_dotenv(BASE / ".env")
 
 import os                                       # noqa: E402
 import re                                       # noqa: E402
-import threading                                # noqa: E402
 import time                                     # noqa: E402
-import uuid                                     # noqa: E402
 from datetime import datetime                   # noqa: E402
 from collections import Counter                 # noqa: E402
 
 from fastapi import FastAPI, Header, HTTPException  # noqa: E402
-from fastapi.responses import FileResponse, Response  # noqa: E402
+from fastapi.responses import FileResponse, Response, StreamingResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles     # noqa: E402
 from pydantic import BaseModel                  # noqa: E402
 
@@ -223,7 +222,6 @@ def check(body: CheckIn):
 
 # ---------------------------------------------------------------------------
 # Whole-folder audit (runs in the background; the page polls for progress)
-AUDITS: dict[str, dict] = {}
 _COURSE_RE = re.compile(r"\b([A-Z]{2,5})[\s\-_]*(\d{3,4})\b")
 
 
@@ -284,8 +282,22 @@ class AuditIn(FolderIn):
     use_llm: bool = True
 
 
+def _summary(results: list[dict], overlaps: list[dict]) -> dict:
+    counts = Counter(r["status"] for r in results)
+    terms = Counter(t for r in results for o in r["objectives"] for t in o["avoid_terms"])
+    return {"courses": len(results), "clean": counts["clean"], "avoid": counts["avoid"],
+            "vague": counts["vague"], "no_objectives": counts["no_objectives"],
+            "unreadable": counts["unreadable"],
+            "objectives": sum(len(r["objectives"]) for r in results),
+            "objectives_flagged": sum(1 for r in results for o in r["objectives"] if o["status"] != "ok"),
+            "top_terms": terms.most_common(8), "overlap_pairs": len(overlaps),
+            "overlap_courses": sum(1 for r in results if any(o.get("overlaps") for o in r["objectives"]))}
+
+
 @app.post("/api/audit")
-def start_audit(body: AuditIn, x_google_token: str | None = Header(default=None)):
+def audit(body: AuditIn, x_google_token: str | None = Header(default=None)):
+    """Reviews the whole folder in ONE streaming request (one JSON object per line), so nothing
+    is kept in server memory between requests and it works on any Cloud Run instance."""
     try:
         sc, folder_name, _ = _scanner(body.folder_link, x_google_token)
         files = sc.files()
@@ -296,72 +308,53 @@ def start_audit(body: AuditIn, x_google_token: str | None = Header(default=None)
 
     # reference docs in the folder (e.g. the Bloom's verb list) aren't courses
     files = [f for f in files if not re.search(r"bloom|taxonomy|verb.?list", f["name"], re.I)]
-    job_id = uuid.uuid4().hex[:12]
     use_llm = body.use_llm and llm.configured()
-    job = {"id": job_id, "folder_name": folder_name, "total": len(files), "done": 0,
-           "results": [], "finished": False, "ai": use_llm, "started": time.time()}
-    AUDITS[job_id] = job
-    lock = threading.Lock()
 
     def one(f):
         try:
-            res = _audit_one(sc, f, use_llm)
-        except Exception as e:  # one bad file never kills the audit
-            res = {"file": {"name": f["name"], "link": f.get("link"), "path": f.get("path")},
-                   "course": f["name"], "status": "unreadable", "objectives": [], "summary": f"Error: {e}"}
-        with lock:
-            job["results"].append(res)
-            job["done"] += 1
+            return _audit_one(sc, f, use_llm)
+        except Exception as e:  # one bad file never kills the review
+            return {"file": {"name": f["name"], "link": f.get("link"), "path": f.get("path")},
+                    "course": f["name"], "status": "unreadable", "objectives": [], "summary": f"Error: {e}"}
 
-    def run():
+    def stream():
+        started = time.time()
+        yield json.dumps({"type": "start", "ok": True, "folder_name": folder_name, "total": len(files),
+                          "ai": use_llm}) + "\n"
+        results = []
         with ThreadPoolExecutor(max_workers=4) as ex:
-            list(ex.map(one, files))
+            futures = [ex.submit(one, f) for f in files]
+            for fut in as_completed(futures):
+                r = fut.result()
+                results.append(r)
+                yield json.dumps({"type": "result", "result": r}) + "\n"
         try:
-            job["overlaps"] = find_overlaps(job["results"])
+            overlaps = find_overlaps(results)       # also marks o["overlaps"] on each objective
         except Exception as e:
             log.warning("overlap check failed: %s", e)
-            job["overlaps"] = []
-        job["finished"] = True
-        job["took"] = round(time.time() - job["started"], 1)
+            overlaps = []
+        yield json.dumps({"type": "done", "results": results, "overlaps": overlaps,
+                          "summary": _summary(results, overlaps),
+                          "took": round(time.time() - started, 1)}) + "\n"
 
-    threading.Thread(target=run, daemon=True).start()
-    # drop old jobs
-    for k in [k for k, v in AUDITS.items() if time.time() - v["started"] > 3600]:
-        AUDITS.pop(k, None)
-    return {"ok": True, "job_id": job_id, "total": len(files), "folder_name": folder_name, "ai": use_llm}
+    return StreamingResponse(stream(), media_type="application/x-ndjson",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
-@app.get("/api/audit/{job_id}")
-def audit_status(job_id: str):
-    job = AUDITS.get(job_id)
-    if not job:
-        return {"ok": False, "message": "Audit not found (the server may have restarted). Run it again."}
-    results = sorted(job["results"], key=lambda r: r["course"])
-    counts = Counter(r["status"] for r in results)
-    terms = Counter(t for r in results for o in r["objectives"] for t in o["avoid_terms"])
-    n_obj = sum(len(r["objectives"]) for r in results)
-    n_bad = sum(1 for r in results for o in r["objectives"] if o["status"] != "ok")
-    return {"ok": True, **{k: job[k] for k in ("folder_name", "total", "done", "finished", "ai")},
-            "took": job.get("took"),
-            "summary": {"courses": len(results), "clean": counts["clean"],
-                        "avoid": counts["avoid"], "vague": counts["vague"],
-                        "no_objectives": counts["no_objectives"], "unreadable": counts["unreadable"],
-                        "objectives": n_obj, "objectives_flagged": n_bad,
-                        "top_terms": terms.most_common(8),
-                        "overlap_pairs": len(job.get("overlaps") or []),
-                        "overlap_courses": sum(1 for r in results if any(o.get("overlaps") for o in r["objectives"]))},
-            "results": results}
+class ExcelIn(BaseModel):
+    folder_name: str = ""
+    results: list[dict]
+    overlaps: list[dict] = []
 
 
-@app.get("/api/audit/{job_id}/excel")
-def audit_excel(job_id: str):
-    """Coordinator's review file. Built on the fly; nothing is saved on the server."""
-    job = AUDITS.get(job_id)
-    if not job or not job["finished"]:
-        raise HTTPException(404, "Run the audit first (or it's still running).")
-    data = build_review_xlsx({"folder_name": job["folder_name"], "results": job["results"],
-                              "overlaps": job.get("overlaps")})
-    name = re.sub(r"[^\w-]+", "_", job["folder_name"] or "folder")
+@app.post("/api/excel")
+def excel(body: ExcelIn):
+    """Coordinator's review file, built from the results the page already has. Nothing is saved."""
+    if len(body.results) > 3000:
+        raise HTTPException(413, "Too many courses for one file.")
+    data = build_review_xlsx({"folder_name": body.folder_name, "results": body.results,
+                              "overlaps": body.overlaps})
+    name = re.sub(r"[^\w-]+", "_", body.folder_name or "folder")
     fname = f"syllabus-review-{name}-{datetime.now().strftime('%Y-%m-%d')}.xlsx"
     return Response(data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     headers={"Content-Disposition": f'attachment; filename="{fname}"'})

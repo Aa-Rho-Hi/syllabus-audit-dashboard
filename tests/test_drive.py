@@ -155,17 +155,20 @@ def test_empty_link_uses_samples(client):
     assert r["ok"] and r["access"] == "local" and r["files"] == 3
 
 
+def _run_audit(client, headers):
+    import json
+    r = client.post("/api/audit", json={"folder_link": LINK, "use_llm": False}, headers=headers)
+    assert "ndjson" in r.headers["content-type"]
+    events = [json.loads(l) for l in r.text.splitlines() if l.strip()]
+    assert events[0]["type"] == "start" and events[-1]["type"] == "done"
+    assert sum(e["type"] == "result" for e in events) == events[0]["total"]
+    return events[-1], events[0]
+
+
 def test_folder_audit(client):
-    import time
     h = {"X-Google-Token": "good"}
-    r = client.post("/api/audit", json={"folder_link": LINK, "use_llm": False}, headers=h).json()
-    assert r["ok"] and r["total"] == 4
-    for _ in range(50):
-        d = client.get(f"/api/audit/{r['job_id']}").json()
-        if d["finished"]:
-            break
-        time.sleep(0.1)
-    assert d["finished"] and d["summary"]["courses"] == 4
+    d, start = _run_audit(client, h)
+    assert start["total"] == 4 and d["summary"]["courses"] == 4
     by = {x["course"]: x for x in d["results"]}
     assert set(by) == {"ECEN 314", "ECEN 214", "ECEN 303", "ECEN 350"}
     assert by["ECEN 314"]["status"] == "avoid"            # "...and understand how to perform..."
@@ -205,15 +208,10 @@ def test_fixed_folder_not_shared(client, monkeypatch):
 
 
 def test_audit_excel(client):
-    import io, time
+    import io
     from openpyxl import load_workbook
-    h = {"X-Google-Token": "good"}
-    r = client.post("/api/audit", json={"folder_link": LINK, "use_llm": False}, headers=h).json()
-    for _ in range(50):
-        if client.get(f"/api/audit/{r['job_id']}").json()["finished"]:
-            break
-        time.sleep(0.1)
-    x = client.get(f"/api/audit/{r['job_id']}/excel")
+    d, start = _run_audit(client, {"X-Google-Token": "good"})
+    x = client.post("/api/excel", json={"folder_name": start["folder_name"], "results": d["results"], "overlaps": d["overlaps"]})
     assert x.status_code == 200 and "spreadsheetml" in x.headers["content-type"]
     wb = load_workbook(io.BytesIO(x.content))
     ws = wb["Review"]
@@ -226,4 +224,3 @@ def test_audit_excel(client):
     assert {"Summary", "Overlaps"} <= set(wb.sheetnames)
     summ = {r[0]: r for r in wb["Summary"].iter_rows(min_row=2, values_only=True) if r and r[0]}
     assert "understand" in summ["ECEN 314"][6] and "Simple Syllabus" in summ["ECEN 314"][6]
-    assert client.get("/api/audit/nope/excel").status_code == 404

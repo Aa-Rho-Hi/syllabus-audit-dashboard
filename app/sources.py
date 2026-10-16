@@ -140,10 +140,21 @@ class LocalSource:
 
 
 class DriveSource:
-    def __init__(self, folder_id: str, svc, kind: str):
+    """Google's API client (httplib2) is NOT thread-safe: sharing one across threads can crash
+    the whole process (signal 11). So every thread gets its own client, built on first use."""
+
+    def __init__(self, folder_id: str, make_svc, kind: str):
         self.folder_id = folder_id
-        self.svc = svc
+        self._make_svc = make_svc
+        self._local = threading.local()
         self.kind = kind  # "user" | "service_account" | "api_key"
+
+    @property
+    def svc(self):
+        svc = getattr(self._local, "svc", None)
+        if svc is None:
+            svc = self._local.svc = self._make_svc()
+        return svc
 
     def check_access(self) -> str:
         """Cheap call that fails fast with 404/403 if these credentials can't see the folder."""
@@ -307,7 +318,7 @@ def resolve_source(folder_link: str, user_token: str | None, base_dir: Path):
     errors = []
     for kind, make, ckey in attempts:
         try:
-            src = DriveSource(folder_id, make(), kind)
+            src = DriveSource(folder_id, make, kind)
             name = src.check_access()
             return src, f"{folder_id}:{ckey}", name
         except AccessError:
