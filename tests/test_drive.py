@@ -178,3 +178,27 @@ def test_folder_audit(client):
 def test_audit_needs_signin(client):
     r = client.post("/api/audit", json={"folder_link": LINK}).json()
     assert r["ok"] is False and r["needs_signin"]
+
+
+class _Creds:
+    def __init__(self, token): self.token = token; self.service_account_email = "syllabus-app@example.iam.gserviceaccount.com"
+
+
+def test_fixed_folder_no_signin(client, monkeypatch):
+    monkeypatch.setenv("DRIVE_FOLDER_LINK", LINK)
+    monkeypatch.setattr(sources, "_service_account_creds", lambda: _Creds("good"))
+    cfg = client.get("/api/config").json()
+    assert cfg["fixed_folder"] is True and cfg["google_client_id"] is None
+    r = client.post("/api/folder", json={"folder_link": ""}).json()          # faculty send nothing
+    assert r["ok"] and r["folder_name"] == "SimpleSyllabusAudit" and r["access"] == "service_account"
+    r = client.post("/api/folder", json={"folder_link": "https://evil.example/other"}).json()   # client can't redirect it
+    assert r["ok"] and r["folder_name"] == "SimpleSyllabusAudit"
+    r = client.post("/api/lookup", json={"course_number": "ECEN 314"}).json()
+    assert r["status"] == "exists"
+
+
+def test_fixed_folder_not_shared(client, monkeypatch):
+    monkeypatch.setenv("DRIVE_FOLDER_LINK", LINK)
+    monkeypatch.setattr(sources, "_service_account_creds", lambda: _Creds("stranger"))
+    r = client.post("/api/folder", json={"folder_link": ""}).json()
+    assert r["ok"] is False and "syllabus-app@example.iam.gserviceaccount.com" in r["message"]

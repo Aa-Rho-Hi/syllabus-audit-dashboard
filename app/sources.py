@@ -225,15 +225,50 @@ def _build(**kw):
     return build("drive", "v3", cache_discovery=False, **kw)
 
 
-def _service_account_creds():
+DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
+
+
+def fixed_folder() -> str:
+    """The department folder every request uses (faculty never paste a link)."""
+    return (os.getenv("DRIVE_FOLDER_LINK") or os.getenv("DRIVE_FOLDER_ID") or "").strip() \
+        if os.getenv("FIXED_FOLDER", "1") != "0" else ""
+
+
+def _service_account_creds(scopes: list[str] | None = None):
+    scopes = scopes or DRIVE_SCOPES
     from google.oauth2 import service_account
-    scopes = ["https://www.googleapis.com/auth/drive.readonly"]
     creds_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
     creds_file = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
     if creds_json:
         return service_account.Credentials.from_service_account_info(json.loads(creds_json), scopes=scopes)
     if creds_file and Path(creds_file).is_file():
         return service_account.Credentials.from_service_account_file(creds_file, scopes=scopes)
+    # On Cloud Run (or after `gcloud auth application-default login`): use the
+    # runtime identity. No key file needed; just share the folder with its email.
+    if os.getenv("K_SERVICE") or os.getenv("USE_DEFAULT_CREDENTIALS") == "1":
+        import google.auth
+        creds, _ = google.auth.default(scopes=scopes)
+        return creds
+    return None
+
+
+def server_identity() -> str | None:
+    """Email the Drive folder must be shared with (shown to the admin in errors)."""
+    if os.getenv("DRIVE_SHARE_WITH"):
+        return os.getenv("DRIVE_SHARE_WITH")
+    try:
+        c = _service_account_creds()
+        email = getattr(c, "service_account_email", None)
+        if email and email != "default":
+            return email
+        if os.getenv("K_SERVICE"):
+            import urllib.request
+            req = urllib.request.Request(
+                "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/email",
+                headers={"Metadata-Flavor": "Google"})
+            return urllib.request.urlopen(req, timeout=2).read().decode()
+    except Exception:
+        pass
     return None
 
 
@@ -243,6 +278,8 @@ def _http_status(e: Exception) -> int | None:
 
 def resolve_source(folder_link: str, user_token: str | None, base_dir: Path):
     """Pick credentials that can actually see the folder. Returns (source, cache_key, folder_name)."""
+    if fixed_folder():
+        folder_link, user_token = fixed_folder(), None
     folder_id = parse_folder_id(folder_link)
     if not folder_link.strip():
         local = os.getenv("LOCAL_SYLLABI_DIR") or str(base_dir / "sample_syllabi")
@@ -282,6 +319,10 @@ def resolve_source(folder_link: str, user_token: str | None, base_dir: Path):
                 raise AccessError("Your Google sign-in expired. Sign in again.", needs_signin=True)
             log.info("access via %s failed: %s", kind, e)
 
+    if fixed_folder():
+        who = server_identity()
+        raise AccessError("The app can't open the department Drive folder yet. The folder owner needs to share it"
+                          + (f" with {who}" if who else " with the app's service account") + " as Viewer.")
     if not user_token:
         raise AccessError("Sign in with Google so the app can read this folder.", needs_signin=True)
     raise AccessError("Your Google account can't open that folder. Check the link, "

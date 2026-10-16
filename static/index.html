@@ -117,6 +117,11 @@ mark.warn{background:var(--warn-bg);box-shadow:inset 0 -2px 0 var(--warn)}
 .course .o .why{font-size:13px;color:var(--muted)}
 .course .o .sug{margin-top:4px;font-size:13.5px;color:var(--good)}
 
+/* submit */
+.submitbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}
+.field{margin-bottom:12px}
+.field input,.field textarea{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;font:inherit}
+.copied{color:var(--good);font-size:13px;margin-left:8px}
 /* verbs dialog */
 dialog{border:0;border-radius:12px;padding:0;width:min(640px,calc(100vw - 32px));max-height:80vh}
 dialog::backdrop{background:rgba(20,10,10,.35)}
@@ -169,7 +174,7 @@ dialog::backdrop{background:rgba(20,10,10,.35)}
     <section id="tab-check">
       <div class="card">
         <form id="lookup" class="row" autocomplete="off">
-          <div style="width:170px"><label for="num">Course number</label><input id="num" type="text" placeholder="e.g. ECEN 314" required></div>
+          <div style="width:170px"><label for="num">Course number</label><input id="num" type="text" placeholder="ECEN 314 or ECEN314" required title="With or without a space, any case"></div>
           <div class="grow"><label for="name">Course name <span class="muted">(optional)</span></label><input id="name" type="text" placeholder="e.g. Signals and Systems"></div>
           <button class="btn" id="go">Check</button>
         </form>
@@ -191,6 +196,11 @@ dialog::backdrop{background:rgba(20,10,10,.35)}
         </div>
         <div id="fixbar" class="small muted" style="margin-top:6px"></div>
         <div class="problems" id="problems"></div>
+        <div class="submitbar">
+          <span class="muted small" id="submit-hint">Done? Send these to the coordinator for approval.</span>
+          <button class="ghost" type="button" id="open-submit">Submit for review</button>
+        </div>
+        <div id="submit-out"></div>
       </div>
     </section>
 
@@ -208,6 +218,20 @@ dialog::backdrop{background:rgba(20,10,10,.35)}
     </section>
   </div>
 </div>
+
+<dialog id="submit-dlg">
+  <form method="dialog" id="submit-form">
+    <div class="dlg-head"><b>Submit for review</b><button class="ghost" type="button" id="close-submit" style="padding:5px 11px">Cancel</button></div>
+    <div class="dlg-body" style="padding-top:14px">
+      <p class="small" id="submit-summary" style="margin:0 0 12px"></p>
+      <div class="field"><label for="f-name">Your name</label><input id="f-name" type="text" autocomplete="name" required></div>
+      <div class="field"><label for="f-email">Your TAMU email</label><input id="f-email" type="email" autocomplete="email" required></div>
+      <div class="field"><label for="f-note">Note for the coordinator <span class="muted">(optional)</span></label><textarea id="f-note" rows="2"></textarea></div>
+      <div id="submit-msg" class="small" style="color:var(--bad);margin-bottom:8px"></div>
+      <button class="btn" id="send-submit" type="submit">Submit</button>
+    </div>
+  </form>
+</dialog>
 
 <dialog id="verbs-dlg">
   <div class="dlg-head"><b>Allowed action verbs</b><button class="ghost" type="button" id="close-verbs" style="padding:5px 11px">Close</button></div>
@@ -356,7 +380,37 @@ function render(){
       ${p.fix ? `<div class="fix"><span>${esc(p.fix)}</span><button class="ghost" data-use="${p.i}">Use</button></div>` : ""}
     </div>`).join("");
 }
-ta.addEventListener("input", () => { $("#fixbar").innerHTML = ""; render(); scheduleAI(); });
+ta.addEventListener("input", () => { $("#fixbar").innerHTML = ""; $("#submit-out").innerHTML = ""; render(); scheduleAI(); });
+
+/* Clean up pasted objectives: Windows line endings, tabs, odd spaces, Word/PDF
+   bullets and numbering, blank lines, and objectives that wrapped onto 2+ lines. */
+const BULLET = /^(?:[\u2022\u25cf\u25aa\u25e6\u2023\u2219\u00b7\u25a0\u25a1\u2013\u2014\uf0b7\uf0a7\uf076\uf0d8\uf0fc\uf0a8*>-]+|o(?=\s))\s*/;
+const NUMBER = /^\(?(?:\d{1,2}|[ivxIVX]{1,4}|[a-zA-Z])[.)\]:]\s+/;
+function firstWord(l){ return ((l.match(/^[A-Za-z][A-Za-z-]*/) || [""])[0]).toLowerCase(); }
+function isVerbStart(l){ const w = firstWord(l); return !!(w && (allowedLookup(w) || TERM[w])); }
+function cleanObjectives(raw){
+  const lines = raw.replace(/\r\n?/g, "\n").replace(/[\u00a0\u2007\u202f\t]/g, " ").split("\n")
+                   .map(l => l.replace(/ {2,}/g, " ").trim()).filter(Boolean);
+  const out = [];
+  for (let l of lines){
+    const marked = BULLET.test(l) || NUMBER.test(l);
+    l = l.replace(BULLET, "").replace(NUMBER, "").trim();
+    if (!l) continue;
+    const prev = out[out.length - 1];
+    const continues = prev && !marked && !/:$/.test(prev) && !LEAD_IN.test(l) &&
+      (/^[a-z(,;]/.test(l) || (!/[.;!?]$/.test(prev) && !isVerbStart(l)));
+    if (continues) out[out.length - 1] = prev + " " + l; else out.push(l);
+  }
+  return out.join("\n");
+}
+ta.addEventListener("paste", e => {
+  const raw = (e.clipboardData || window.clipboardData).getData("text/plain");
+  if (!raw || !raw.includes("\n")) return;           // single-line paste: leave it alone
+  e.preventDefault();
+  const clean = cleanObjectives(raw);
+  if (!document.execCommand || !document.execCommand("insertText", false, clean)) ta.setRangeText(clean, ta.selectionStart, ta.selectionEnd, "end");
+  $("#fixbar").innerHTML = ""; render(); scheduleAI();
+});
 ta.addEventListener("scroll", () => bd.scrollTop = ta.scrollTop);
 new ResizeObserver(() => { bd.style.height = ta.offsetHeight + "px"; }).observe(ta);
 
@@ -402,6 +456,33 @@ $("#fix-all").onclick = () => {
   $("#undo").onclick = () => { ta.value = before; $("#fixbar").innerHTML = ""; aiResults = null; render(); scheduleAI(); };
 };
 
+/* submit for review */
+$("#open-submit").onclick = () => {
+  const n = ta.value.split("\n").filter(isObjLine).length;
+  if (!n){ $("#submit-out").innerHTML = `<div class="note bad"><b>Nothing to submit yet.</b>Paste or type the objectives first.</div>`; return; }
+  if (!$("#num").value.trim()){ $("#submit-out").innerHTML = `<div class="note bad"><b>Add the course number first.</b></div>`; return; }
+  const probs = problems().length;
+  $("#submit-summary").innerHTML = `<b>${esc($("#num").value.trim().toUpperCase())}${$("#name").value.trim() ? " · " + esc($("#name").value.trim()) : ""}</b>: ${n} objective${n>1?"s":""}.` +
+    (probs ? ` <span style="color:var(--bad)">${probs} still need${probs===1?"s":""} a fix.</span> You can submit anyway, the coordinator will see them flagged.` : ` <span style="color:var(--good)">All look good.</span>`);
+  try{ $("#f-name").value = localStorage.getItem("facName") || ""; $("#f-email").value = localStorage.getItem("facEmail") || ""; }catch(e){}
+  $("#submit-msg").textContent = ""; $("#submit-dlg").showModal();
+};
+$("#close-submit").onclick = () => $("#submit-dlg").close();
+$("#submit-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const btn = $("#send-submit"); btn.disabled = true; btn.innerHTML = '<span class="spin"></span>Submitting';
+  try{
+    try{ localStorage.setItem("facName", $("#f-name").value.trim()); localStorage.setItem("facEmail", $("#f-email").value.trim()); }catch(e){}
+    const d = await (await fetch("/api/submit", {method:"POST", headers:authHeaders(), body:JSON.stringify({
+      folder_link: folderLink(), course_number:$("#num").value, course_name:$("#name").value,
+      faculty_name:$("#f-name").value, faculty_email:$("#f-email").value, note:$("#f-note").value, text:ta.value})})).json();
+    if (!d.ok){ $("#submit-msg").textContent = d.message || "Couldn't submit."; return; }
+    $("#submit-dlg").close(); $("#f-note").value = "";
+    $("#submit-out").innerHTML = `<div class="note good"><b>Submitted for review</b>Reference #${esc(d.id)}. The coordinator will check these and get back to you.</div>`;
+  }catch(err){ $("#submit-msg").textContent = "Couldn't reach the app server. Try again."; }
+  finally{ btn.disabled = false; btn.textContent = "Submit"; }
+});
+
 /* verbs dialog */
 $("#open-verbs").onclick = () => $("#verbs-dlg").showModal();
 $("#close-verbs").onclick = () => $("#verbs-dlg").close();
@@ -446,12 +527,22 @@ function showLookup(d){
   if (d.objectives){
     const o = d.objectives;
     h += o.items.length ? `<ol class="objs view">${o.items.map(t => `<li>${viewHTML(t)}</li>`).join("")}</ol>
-         <p class="small" style="margin:12px 0 0"><button class="link" id="revise">Check or revise these objectives</button></p>`
+         <p class="small" style="margin:12px 0 0;display:flex;gap:16px;flex-wrap:wrap;align-items:center">
+           <button class="ghost" id="copy-objs" style="padding:6px 12px;font-size:13.5px">Copy objectives</button>
+           <button class="link" id="revise">Check or revise these objectives</button><span id="copied" class="copied"></span></p>`
        : `<p class="muted small">${esc(o.note || "No learning objectives section found in that file.")}</p>`;
   }
   out.innerHTML = h;
   if (d.status === "exists") ed.classList.add("hidden");
   else { ed.classList.remove("hidden"); $("#editor-title").textContent = "Paste your learning objectives"; }
+  const cp = $("#copy-objs");
+  if (cp) cp.onclick = async () => {
+    const txt = d.objectives.items.join("\n");
+    try{ await navigator.clipboard.writeText(txt); }
+    catch(e){ const t = document.createElement("textarea"); t.value = txt; document.body.appendChild(t); t.select(); document.execCommand("copy"); t.remove(); }
+    $("#copied").textContent = "Copied. Paste them into Simple Syllabus.";
+    setTimeout(() => { const c = $("#copied"); if (c) c.textContent = ""; }, 4000);
+  };
   const rv = $("#revise");
   if (rv) rv.onclick = () => {
     ed.classList.remove("hidden"); $("#editor-title").textContent = "Revise the objectives";
@@ -480,13 +571,25 @@ function showSetup(msg){
   const signed = gToken && gTokenExp > Date.now();
   $("#signin").classList.toggle("hidden", !tokenClient || signed);
 }
+function showLibraryError(msg){
+  $("#setup").classList.add("hidden"); $("#app").classList.remove("hidden");
+  $("#drive-name").textContent = "Syllabus library unavailable";
+  $("#drive-sub").textContent = msg;
+  $("#drive-sub").style.color = "var(--bad)";
+  $("#change-folder").classList.add("hidden"); $("#signout").classList.add("hidden");
+}
 function showApp(name, files, access){
   folderName = name;
+  $("#drive-sub").style.color = "";
   $("#setup").classList.add("hidden"); $("#app").classList.remove("hidden");
   $("#drive-name").textContent = access === "local" ? "Sample syllabi (not Google Drive)" : name;
   $("#drive-sub").textContent = `${files} syllabi` + ({user:" · connected with your Google account", service_account:" · connected with the service account", api_key:" · public link"}[access] || "");
   $("#signout").classList.toggle("hidden", !(gToken && gTokenExp > Date.now()));
   $("#change-folder").textContent = access === "local" ? "Connect Google Drive" : "Change folder";
+  if (CFG.fixed_folder){
+    $("#change-folder").classList.add("hidden"); $("#signout").classList.add("hidden");
+    $("#drive-sub").textContent = `${files} syllabi in the department Google Drive folder`;
+  }
   $("#audit-folder").textContent = name;
 }
 $("#change-folder").onclick = () => { if (!folderName || $("#drive-name").textContent.startsWith("Sample")) $("#folder").value = ""; showSetup(""); $("#folder").focus(); };
@@ -522,7 +625,7 @@ $("#signin").onclick = () => tokenClient && tokenClient.requestAccessToken();
 let connectSeq = 0;
 async function connectFolder(){
   const link = folderLink(), seq = ++connectSeq;
-  try{ localStorage.setItem("folderLink", link); }catch(e){}
+  if (!CFG.fixed_folder) try{ localStorage.setItem("folderLink", link); }catch(e){}
   $("#folder-msg").className = "muted"; $("#folder-msg").innerHTML = '<span class="spin"></span>Connecting…';
   try{
     const d = await (await fetch("/api/folder", {method:"POST", headers:authHeaders(), body:JSON.stringify({folder_link:link})})).json();
@@ -530,12 +633,14 @@ async function connectFolder(){
     if (d.ok){
       if (folderName && folderName !== d.folder_name){ $("#lookup-out").innerHTML = ""; resetAudit(); }
       showApp(d.folder_name, d.files, d.access);
+    } else if (CFG.fixed_folder){
+      showLibraryError(d.message);
     } else {
       let msg = d.message;
       if (d.needs_signin && !CFG.google_client_id) msg += " (Google sign-in isn't set up: add GOOGLE_CLIENT_ID to .env.)";
       showSetup(msg);
     }
-  }catch(e){ if (seq === connectSeq) showSetup("Couldn't reach the app server."); }
+  }catch(e){ if (seq === connectSeq) (CFG.fixed_folder ? showLibraryError : showSetup)("Couldn't reach the app server."); }
 }
 
 /* =========== whole-folder audit =========== */
@@ -627,6 +732,7 @@ async function init(){
   $("#avoid-ref").innerHTML = [...VERBS.avoid_verbs, ...VERBS.avoid_phrases].map(v => `<span>${esc(v)}</span>`).join("");
   try{ CFG = await (await fetch("/api/config")).json(); }catch(e){}
   aiState = CFG.llm_configured ? "" : "off";
+  if (CFG.fixed_folder){ $("#folder").value = ""; connectFolder(); render(); return; }
   let saved = null; try{ saved = localStorage.getItem("folderLink"); }catch(e){}
   $("#folder").value = saved ?? CFG.default_folder ?? "";
   try{ const t = JSON.parse(sessionStorage.getItem("gtok") || "null"); if (t && t.exp > Date.now()){ gToken = t.token; gTokenExp = t.exp; } }catch(e){}

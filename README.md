@@ -8,6 +8,10 @@ Professor types a course number (and optionally a name). The app searches the sy
 - **Same name, different number** → warns them, shows that course's objectives, still lets them write new ones.
 - **Not found** → objectives box. Avoid-list verbs turn red as they type; AI review adds rewrites using approved verbs.
 
+**No sign-in for faculty.** On Cloud Run the app reads one department Drive folder itself (set `DRIVE_FOLDER_LINK`). Faculty just open the link and type a course number (`ECEN 314` or `ECEN314`, both work).
+
+**Coordinator review.** Faculty click **Submit for review** (name, email, optional note). The coordinator opens `/review`, enters the passcode, and sees a queue (Pending / Changes requested / Approved) with flagged words in red, the checker's notes, and the current catalog objectives side by side. Approve or request changes with a comment, download CSV. Submissions are saved to a Google Sheet.
+
 Extras:
 - **Fix all**: rewrites every flagged objective in one click (AI rewrites; without AI it swaps avoid-list verbs like Understand → Explain). Undo is right there.
 - **Audit every syllabus in this folder**: scans the whole folder in the background, shows counts (avoid-list verbs, vague, missing objectives, all good), the most common problem words, each course's flagged objectives with suggested fixes, and a CSV download for the committee.
@@ -90,7 +94,28 @@ gcloud run deploy syllabus-audit --source . --region $REGION \
   --set-secrets "LLM_API_KEY=llm-api-key:latest"
 ```
 
-Then:
+### Department folder, submissions sheet, review passcode
+
+The app uses the Cloud Run service's own Google identity, so no key files. Find its email:
+
+```bash
+gcloud run services describe syllabus-audit-dashboard --region us-central1 --format="value(spec.template.spec.serviceAccountName)"
+# blank means the default: PROJECT_NUMBER-compute@developer.gserviceaccount.com
+```
+
+1. In Google Drive, **Share** the syllabus folder with that email as **Viewer**.
+2. Create a Google Sheet for submissions (e.g. "Syllabus Audit submissions") and **Share** it with the same email as **Editor**. The app adds a `Submissions` tab with headers on first use.
+3. Enable the Sheets API once: `gcloud services enable sheets.googleapis.com drive.googleapis.com`
+4. Point the service at them and set a review passcode:
+
+```bash
+gcloud run services update syllabus-audit-dashboard --region us-central1 \
+  --update-env-vars "DRIVE_FOLDER_LINK=https://drive.google.com/drive/folders/FOLDER_ID,SUBMISSIONS_SHEET=https://docs.google.com/spreadsheets/d/SHEET_ID/edit,REVIEW_PASSCODE=pick-a-passcode"
+```
+
+Faculty page: the service URL. Coordinator page: the service URL + `/review`.
+
+If you used Google sign-in instead (no `DRIVE_FOLDER_LINK`):
 1. Copy the `https://syllabus-audit-....run.app` URL it prints.
 2. Google Cloud Console → **APIs & Services → Credentials** → your OAuth client → add that URL under **Authorized JavaScript origins** (no trailing slash). Takes a few minutes to kick in.
 3. Optional: pre-fill the department folder for everyone: `gcloud run services update syllabus-audit --region $REGION --update-env-vars DRIVE_FOLDER_LINK=https://drive.google.com/drive/folders/...`
@@ -109,8 +134,10 @@ app/verbs.py     Verb lists from the Bloom's handout + regex checker
 app/matcher.py   Course number/name matching + objective extraction regex
 app/llm.py       LLM calls (return None on any failure)
 app/sources.py   Drive folder links, sign-in / service account / API key access, text cache
-app/main.py      API: /api/folder, /api/lookup, /api/check, /api/audit, /api/verbs, /api/config
-static/index.html  The whole UI
+app/main.py      API: /api/folder, /api/lookup, /api/check, /api/audit, /api/submit, /api/review/*, /api/verbs, /api/config
+app/store.py     Submissions storage (Google Sheet, or a local file for testing)
+static/index.html  Faculty page
+static/review.html Coordinator review page (/review)
 ```
 
 To change the allowed/avoid lists, edit `BLOOMS`, `AVOID_VERBS`, `AVOID_PHRASES` in `app/verbs.py`. The browser picks them up from `/api/verbs`.

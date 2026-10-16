@@ -167,7 +167,7 @@ ALLOWED = allowed_index()
 
 # Lead-ins professors put before the verb ("Students will be able to ...").
 _STEM_RE = re.compile(
-    r"^\s*(?:[-*•●▪–—>]+|\(?[0-9ivxlcIVXLC]{1,4}[.)\]:]|\(?[a-zA-Z][.)\]])?\s*"
+    r"^\s*(?:[-*•●▪◦·–—\uf0b7\uf0a7>]+|o(?=\s)|\(?[0-9ivxlcIVXLC]{1,4}[.)\]:]|\(?[a-zA-Z][.)\]])?\s*"
     r"(?:(?:upon|after|by the end of)[^,:]*?[,:]\s*)?"
     r"(?:(?:the\s+)?students?\s+(?:will|should|shall|can|must)\s+(?:be\s+able\s+to\s+)?)?"
     r"(?:(?:be\s+)?able\s+to\s+)?(?:swbat\s+)?(?:to\s+)?",
@@ -183,9 +183,41 @@ LEAD_IN_RE = re.compile(
 )
 
 
+_BULLET_RE = re.compile(r"^(?:[•●▪◦‣∙·■□–—\uf0b7\uf0a7\uf076\uf0d8\uf0fc*>-]+|o(?=\s))\s*")
+_NUMBER_RE = re.compile(r"^\(?(?:\d{1,2}|[ivxIVX]{1,4}|[a-zA-Z])[.)\]:]\s+")
+
+
+def clean_objective(line: str) -> str:
+    """Strip bullets / numbering so the stored text is just the objective."""
+    return _NUMBER_RE.sub("", _BULLET_RE.sub("", line.strip()), count=1).strip()
+
+
+def _verb_start(line: str) -> bool:
+    m = re.match(r"[A-Za-z][A-Za-z-]*", line)
+    if not m:
+        return False
+    w = m.group(0).lower()
+    return bool(_lookup_allowed(w)) or w in _TERM_LOOKUP
+
+
 def split_objectives(text: str) -> list[str]:
-    lines = [l.strip() for l in _SPLIT_RE.split(text or "")]
-    return [l for l in lines if len(re.sub(r"[^A-Za-z]", "", l)) >= 3 and not LEAD_IN_RE.match(l)]
+    """One objective per entry, tolerant of messy pastes: blank lines, tabs, odd spaces,
+    Word/PDF bullets, and objectives that wrapped onto several lines."""
+    raw = (text or "").replace("\r\n", "\n").replace("\r", "\n")
+    raw = re.sub(r"[\u00a0\u2007\u202f\t]", " ", raw)
+    out: list[str] = []
+    for line in _SPLIT_RE.split(raw):
+        line = re.sub(r" {2,}", " ", line).strip()
+        if not line:
+            continue
+        marked = bool(_BULLET_RE.match(line) or _NUMBER_RE.match(line))
+        prev = out[-1] if out else None
+        if (prev and not marked and not prev.endswith(":") and not LEAD_IN_RE.match(line)
+                and (re.match(r"[a-z(,;]", line) or (not re.search(r"[.;!?]$", prev) and not _verb_start(line)))):
+            out[-1] = prev + " " + line
+        else:
+            out.append(line)
+    return [l for l in out if len(re.sub(r"[^A-Za-z]", "", l)) >= 3 and not LEAD_IN_RE.match(l)]
 
 
 def _lookup_allowed(word: str) -> tuple[str, list[str]] | None:

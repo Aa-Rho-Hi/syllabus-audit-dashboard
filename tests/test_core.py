@@ -42,3 +42,18 @@ def test_extract_objectives():
 def test_name_score():
     assert name_score("Software Engineering", "csce_606_software_engineering.txt", "") >= 90
     assert name_score("Quantum Basket Weaving", "csce_606_software_engineering.txt", "Agile") < 60
+
+
+def test_messy_paste():
+    messy = ("Upon successfully completing the course, students will be able to:\r\n\r\n"
+             "1.   Analyze and design resistive DC circuits using fundamental circuit laws and\r\n"
+             "techniques including node voltage analysis.\r\n\r\n\r\n"
+             "\t•\tUnderstand  the transient response of RL circuits.\r\n"
+             "    Design a  digital filter.\r\n"
+             "o\tEvaluate amplifier performance using simulation and lab\r\n"
+             "   measurements.\r\n"
+             "  Know the TLS handshake.   \r\n\r\n")
+    r = regex_check(messy)
+    assert len(r) == 5
+    assert [x["status"] for x in r] == ["ok", "avoid", "ok", "ok", "avoid"]
+    assert r[0]["text"].endswith("node voltage analysis.")
