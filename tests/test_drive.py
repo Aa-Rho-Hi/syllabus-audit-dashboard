@@ -202,3 +202,26 @@ def test_fixed_folder_not_shared(client, monkeypatch):
     monkeypatch.setattr(sources, "_service_account_creds", lambda: _Creds("stranger"))
     r = client.post("/api/folder", json={"folder_link": ""}).json()
     assert r["ok"] is False and "syllabus-app@example.iam.gserviceaccount.com" in r["message"]
+
+
+def test_audit_excel(client):
+    import io, time
+    from openpyxl import load_workbook
+    h = {"X-Google-Token": "good"}
+    r = client.post("/api/audit", json={"folder_link": LINK, "use_llm": False}, headers=h).json()
+    for _ in range(50):
+        if client.get(f"/api/audit/{r['job_id']}").json()["finished"]:
+            break
+        time.sleep(0.1)
+    x = client.get(f"/api/audit/{r['job_id']}/excel")
+    assert x.status_code == 200 and "spreadsheetml" in x.headers["content-type"]
+    wb = load_workbook(io.BytesIO(x.content))
+    ws = wb["Review"]
+    head = [c.value for c in ws[1]]
+    assert head[:4] == ["Course", "File", "#", "Learning objective"] and "Status" in head
+    rows = [[c.value for c in row] for row in ws.iter_rows(min_row=2)]
+    assert rows[0][0] == "ECEN 314" and "understand" in rows[0][4]          # problems sorted first
+    assert all(r[7] == "Pending" for r in rows)
+    assert any(dv.formula1 == '"Pending,Approved,Needs changes"' for dv in ws.data_validations.dataValidation)
+    assert "Summary" in wb.sheetnames
+    assert client.get("/api/audit/nope/excel").status_code == 404

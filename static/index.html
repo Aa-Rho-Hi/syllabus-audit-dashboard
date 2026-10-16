@@ -117,11 +117,6 @@ mark.warn{background:var(--warn-bg);box-shadow:inset 0 -2px 0 var(--warn)}
 .course .o .why{font-size:13px;color:var(--muted)}
 .course .o .sug{margin-top:4px;font-size:13.5px;color:var(--good)}
 
-/* submit */
-.submitbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}
-.field{margin-bottom:12px}
-.field input,.field textarea{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;font:inherit}
-.copied{color:var(--good);font-size:13px;margin-left:8px}
 /* verbs dialog */
 dialog{border:0;border-radius:12px;padding:0;width:min(640px,calc(100vw - 32px));max-height:80vh}
 dialog::backdrop{background:rgba(20,10,10,.35)}
@@ -167,7 +162,7 @@ dialog::backdrop{background:rgba(20,10,10,.35)}
     </div>
     <nav class="tabs">
       <button type="button" class="on" data-tab="check">Check a course</button>
-      <button type="button" data-tab="audit">Audit whole folder</button>
+      <button type="button" data-tab="audit">Coordinator: review all courses</button>
     </nav>
 
     <!-- TAB 1: check a course -->
@@ -196,42 +191,23 @@ dialog::backdrop{background:rgba(20,10,10,.35)}
         </div>
         <div id="fixbar" class="small muted" style="margin-top:6px"></div>
         <div class="problems" id="problems"></div>
-        <div class="submitbar">
-          <span class="muted small" id="submit-hint">Done? Send these to the coordinator for approval.</span>
-          <button class="ghost" type="button" id="open-submit">Submit for review</button>
-        </div>
-        <div id="submit-out"></div>
       </div>
     </section>
 
     <!-- TAB 2: audit whole folder -->
     <section id="tab-audit" class="hidden">
       <div class="card">
-        <h2 style="margin-bottom:6px">Audit every syllabus in <span id="audit-folder">this folder</span></h2>
-        <p class="muted small" style="margin:0 0 14px">Finds courses with avoid-list verbs, vague wording, or missing objectives, and suggests fixes.</p>
+        <h2 style="margin-bottom:6px">Review every syllabus in <span id="audit-folder">this folder</span></h2>
+        <p class="muted small" style="margin:0 0 14px">Checks every course's learning objectives, then gives you an Excel file: each objective, the problem found, a suggested rewrite using the allowed verbs, and a Status column (Pending / Approved / Needs changes) plus a comment column to fill in. Nothing is saved in the app.</p>
         <div class="row">
           <button class="btn" id="run-audit" type="button">Run audit</button>
-          <button class="ghost hidden" id="audit-csv" type="button">Download CSV</button>
+          <button class="ghost hidden" id="audit-csv" type="button">Download Excel for review</button>
         </div>
         <div id="audit-out"></div>
       </div>
     </section>
   </div>
 </div>
-
-<dialog id="submit-dlg">
-  <form method="dialog" id="submit-form">
-    <div class="dlg-head"><b>Submit for review</b><button class="ghost" type="button" id="close-submit" style="padding:5px 11px">Cancel</button></div>
-    <div class="dlg-body" style="padding-top:14px">
-      <p class="small" id="submit-summary" style="margin:0 0 12px"></p>
-      <div class="field"><label for="f-name">Your name</label><input id="f-name" type="text" autocomplete="name" required></div>
-      <div class="field"><label for="f-email">Your TAMU email</label><input id="f-email" type="email" autocomplete="email" required></div>
-      <div class="field"><label for="f-note">Note for the coordinator <span class="muted">(optional)</span></label><textarea id="f-note" rows="2"></textarea></div>
-      <div id="submit-msg" class="small" style="color:var(--bad);margin-bottom:8px"></div>
-      <button class="btn" id="send-submit" type="submit">Submit</button>
-    </div>
-  </form>
-</dialog>
 
 <dialog id="verbs-dlg">
   <div class="dlg-head"><b>Allowed action verbs</b><button class="ghost" type="button" id="close-verbs" style="padding:5px 11px">Close</button></div>
@@ -380,7 +356,7 @@ function render(){
       ${p.fix ? `<div class="fix"><span>${esc(p.fix)}</span><button class="ghost" data-use="${p.i}">Use</button></div>` : ""}
     </div>`).join("");
 }
-ta.addEventListener("input", () => { $("#fixbar").innerHTML = ""; $("#submit-out").innerHTML = ""; render(); scheduleAI(); });
+ta.addEventListener("input", () => { $("#fixbar").innerHTML = ""; render(); scheduleAI(); });
 
 /* Clean up pasted objectives: Windows line endings, tabs, odd spaces, Word/PDF
    bullets and numbering, blank lines, and objectives that wrapped onto 2+ lines. */
@@ -455,33 +431,6 @@ $("#fix-all").onclick = () => {
   $("#fixbar").innerHTML = `&#10003; Fixed ${n}. <button class="link" id="undo">Undo</button>`;
   $("#undo").onclick = () => { ta.value = before; $("#fixbar").innerHTML = ""; aiResults = null; render(); scheduleAI(); };
 };
-
-/* submit for review */
-$("#open-submit").onclick = () => {
-  const n = ta.value.split("\n").filter(isObjLine).length;
-  if (!n){ $("#submit-out").innerHTML = `<div class="note bad"><b>Nothing to submit yet.</b>Paste or type the objectives first.</div>`; return; }
-  if (!$("#num").value.trim()){ $("#submit-out").innerHTML = `<div class="note bad"><b>Add the course number first.</b></div>`; return; }
-  const probs = problems().length;
-  $("#submit-summary").innerHTML = `<b>${esc($("#num").value.trim().toUpperCase())}${$("#name").value.trim() ? " · " + esc($("#name").value.trim()) : ""}</b>: ${n} objective${n>1?"s":""}.` +
-    (probs ? ` <span style="color:var(--bad)">${probs} still need${probs===1?"s":""} a fix.</span> You can submit anyway, the coordinator will see them flagged.` : ` <span style="color:var(--good)">All look good.</span>`);
-  try{ $("#f-name").value = localStorage.getItem("facName") || ""; $("#f-email").value = localStorage.getItem("facEmail") || ""; }catch(e){}
-  $("#submit-msg").textContent = ""; $("#submit-dlg").showModal();
-};
-$("#close-submit").onclick = () => $("#submit-dlg").close();
-$("#submit-form").addEventListener("submit", async e => {
-  e.preventDefault();
-  const btn = $("#send-submit"); btn.disabled = true; btn.innerHTML = '<span class="spin"></span>Submitting';
-  try{
-    try{ localStorage.setItem("facName", $("#f-name").value.trim()); localStorage.setItem("facEmail", $("#f-email").value.trim()); }catch(e){}
-    const d = await (await fetch("/api/submit", {method:"POST", headers:authHeaders(), body:JSON.stringify({
-      folder_link: folderLink(), course_number:$("#num").value, course_name:$("#name").value,
-      faculty_name:$("#f-name").value, faculty_email:$("#f-email").value, note:$("#f-note").value, text:ta.value})})).json();
-    if (!d.ok){ $("#submit-msg").textContent = d.message || "Couldn't submit."; return; }
-    $("#submit-dlg").close(); $("#f-note").value = "";
-    $("#submit-out").innerHTML = `<div class="note good"><b>Submitted for review</b>Reference #${esc(d.id)}. The coordinator will check these and get back to you.</div>`;
-  }catch(err){ $("#submit-msg").textContent = "Couldn't reach the app server. Try again."; }
-  finally{ btn.disabled = false; btn.textContent = "Submit"; }
-});
 
 /* verbs dialog */
 $("#open-verbs").onclick = () => $("#verbs-dlg").showModal();
@@ -707,20 +656,7 @@ $("#audit-out").addEventListener("toggle", e => {
   const k = e.target.dataset && e.target.dataset.k; if (!k) return;
   e.target.open ? auditOpen.add(k) : auditOpen.delete(k);
 }, true);
-$("#audit-csv").onclick = () => {
-  if (!auditData) return;
-  const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  const rows = [["Course","File","Course result","Objective","Problem","Suggested rewrite","Link"]];
-  auditData.results.forEach(r => {
-    if (!r.objectives.length) rows.push([r.course, r.file.name, r.summary, "", "", "", r.file.link]);
-    r.objectives.forEach(o => rows.push([r.course, r.file.name, r.summary, o.text,
-      o.status === "ok" ? "" : [...o.avoid_terms.map(t => `"${t}" isn't allowed`), ...o.reasons].join("; ") || "Verb not on allowed list",
-      o.suggestion, r.file.link]));
-  });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob(["\ufeff" + rows.map(r => r.map(q).join(",")).join("\n")], {type:"text/csv"}));
-  a.download = `syllabus-audit-${(auditData.folder_name || "folder").replace(/[^\w-]+/g, "_")}.csv`; a.click();
-};
+$("#audit-csv").onclick = () => { if (auditJob) window.location.href = `/api/audit/${auditJob}/excel`; };
 
 /* =========== start =========== */
 async function init(){

@@ -138,6 +138,31 @@ def check_objectives(objectives: list[str]) -> list[dict] | None:
         + "\n".join(f"{i}. {o}" for i, o in enumerate(objectives))
     )
     data = _json(_call(system, user, 3000))
-    if isinstance(data, dict) and isinstance(data.get("results"), list):
-        return data["results"]
-    return None
+    if not (isinstance(data, dict) and isinstance(data.get("results"), list)):
+        return None
+    results = data["results"]
+
+    # Enforce the list: a rewrite must start with an allowed verb and contain no avoid-list words.
+    bad = [r for r in results if r.get("suggestion") and not suggestion_ok(r["suggestion"])]
+    if bad:
+        retry_user = (
+            "These rewrites broke the rules. Rewrite each so it STARTS with a verb from the ALLOWED list "
+            "and uses none of the verbs or phrases to avoid. Keep the meaning.\n"
+            f"ALLOWED: {', '.join(sorted(ALLOWED))}\n"
+            f"AVOID: {', '.join(AVOID_VERBS + AVOID_PHRASES)}\n"
+            'Format: {"fixes": [{"index": n, "suggestion": "..."}]}\n'
+            + "\n".join(f'{r.get("index")}. {objectives[r["index"]] if isinstance(r.get("index"), int) and r["index"] < len(objectives) else r["suggestion"]}'
+                        for r in bad)
+        )
+        fixes = _json(_call(system, retry_user, 1500)) or {}
+        by_idx = {f.get("index"): f.get("suggestion") for f in fixes.get("fixes", []) if isinstance(f, dict)}
+        for r in bad:
+            new = by_idx.get(r.get("index"))
+            r["suggestion"] = new if new and suggestion_ok(new) else None   # never show an off-list rewrite
+    return results
+
+
+def suggestion_ok(text: str) -> bool:
+    from .verbs import AVOID_RE, _lookup_allowed, leading_verb
+    verb, _ = leading_verb(text)
+    return bool(verb and _lookup_allowed(verb) and not AVOID_RE.search(text))

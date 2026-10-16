@@ -13,13 +13,12 @@ import os                                       # noqa: E402
 import re                                       # noqa: E402
 import threading                                # noqa: E402
 import time                                     # noqa: E402
-import hmac                                     # noqa: E402
 import uuid                                     # noqa: E402
-from datetime import datetime, timezone         # noqa: E402
+from datetime import datetime                   # noqa: E402
 from collections import Counter                 # noqa: E402
 
 from fastapi import FastAPI, Header, HTTPException  # noqa: E402
-from fastapi.responses import FileResponse      # noqa: E402
+from fastapi.responses import FileResponse, Response  # noqa: E402
 from fastapi.staticfiles import StaticFiles     # noqa: E402
 from pydantic import BaseModel                  # noqa: E402
 
@@ -27,7 +26,7 @@ from . import llm                                # noqa: E402
 from .matcher import (name_score, number_regex,  # noqa: E402
                       parse_course_number, regex_extract_objectives)
 from .sources import AccessError, Scanner, TextCache, fixed_folder, resolve_source  # noqa: E402
-from .store import STATUSES, get_store, store_status  # noqa: E402
+from .report import build_review_xlsx               # noqa: E402
 from .verbs import (ALLOWED, AVOID_PHRASES, AVOID_VERBS, BLOOMS,  # noqa: E402
                     SUGGESTIONS, avoid_terms, clean_objective, regex_check, split_objectives)
 
@@ -64,11 +63,6 @@ class CheckIn(BaseModel):
 @app.get("/")
 def index():
     return FileResponse(BASE / "static" / "index.html")
-
-
-@app.get("/review")
-def review_page():
-    return FileResponse(BASE / "static" / "review.html")
 
 
 @app.get("/api/verbs")
@@ -293,6 +287,8 @@ def start_audit(body: AuditIn, x_google_token: str | None = Header(default=None)
     except Exception as e:
         return {"ok": False, "message": f"Couldn't read the folder: {type(e).__name__}: {str(e)[:200]}"}
 
+    # reference docs in the folder (e.g. the Bloom's verb list) aren't courses
+    files = [f for f in files if not re.search(r"bloom|taxonomy|verb.?list", f["name"], re.I)]
     job_id = uuid.uuid4().hex[:12]
     use_llm = body.use_llm and llm.configured()
     job = {"id": job_id, "folder_name": folder_name, "total": len(files), "done": 0,
@@ -343,110 +339,17 @@ def audit_status(job_id: str):
             "results": results}
 
 
-# ---------------------------------------------------------------------------
-# Faculty submissions + coordinator review
-_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-
-
-class SubmitIn(FolderIn):
-    course_number: str
-    course_name: str = ""
-    faculty_name: str
-    faculty_email: str
-    note: str = ""
-    text: str
-
-
-@app.post("/api/submit")
-def submit(body: SubmitIn, x_google_token: str | None = Header(default=None)):
-    name, email = body.faculty_name.strip()[:120], body.faculty_email.strip()[:200]
-    if not name or not _EMAIL_RE.match(email):
-        return {"ok": False, "message": "Please enter your name and a valid email."}
-    if not parse_course_number(body.course_number).num:
-        return {"ok": False, "message": "Please enter a course number like ECEN 314."}
-    objs = [clean_objective(o)[:1000] for o in split_objectives(body.text[:20000])][:40]
-    objs = [o for o in objs if o]
-    if not objs:
-        return {"ok": False, "message": "There are no objectives to submit."}
-
-    rx = regex_check("\n".join(objs))
-    ai = llm.check_objectives(objs) if llm.configured() else None
-    issues, flagged = [], 0
-    for r in rx:
-        a = next((x for x in (ai or []) if x.get("index") == r["index"]), {})
-        status = a.get("status") or r["status"]
-        if r["flags"] and status == "ok":
-            status = "avoid"
-        if status == "ok":
-            continue
-        flagged += 1
-        why = [f"\"{f['base']}\" isn't allowed" for f in r["flags"]]
-        why += [i["reason"] for i in (a.get("issues") or []) if i.get("reason")
-                and str(i.get("span", "")).lower() not in {f["match"].lower() for f in r["flags"]}]
-        if not why and status == "not_listed":
-            why.append(f"\"{r['leading_verb']}\" isn't on the allowed verb list")
-        issues.append(f"#{r['index'] + 1}: " + "; ".join(dict.fromkeys(why)))
-
-    catalog_file, catalog_objs = "", []
-    try:
-        found = lookup(LookupIn(folder_link=body.folder_link, course_number=body.course_number,
-                                course_name=body.course_name), x_google_token)
-        if found.get("status") in ("exists", "similar_name") and found.get("objectives"):
-            catalog_file = found["objectives"]["file"]["name"]
-            catalog_objs = found["objectives"]["items"]
-    except Exception as e:
-        log.warning("catalog lookup during submit failed: %s", e)
-
-    rec = {"id": uuid.uuid4().hex[:8].upper(),
-           "submitted_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
-           "status": "pending", "course_number": parse_course_number(body.course_number).pretty,
-           "course_name": body.course_name.strip()[:200], "faculty_name": name, "faculty_email": email,
-           "note": body.note.strip()[:1000], "objectives": objs, "flagged": flagged, "issues": issues,
-           "ai_checked": ai is not None, "catalog_file": catalog_file, "catalog_objectives": catalog_objs}
-    try:
-        get_store(BASE).add(rec)
-    except Exception as e:
-        log.error("saving submission failed: %s", e)
-        return {"ok": False, "message": "Couldn't save your submission. Please try again in a minute."}
-    return {"ok": True, "id": rec["id"], "flagged": flagged}
-
-
-def _check_passcode(passcode: str | None):
-    expected = os.getenv("REVIEW_PASSCODE", "")
-    if not expected:
-        raise HTTPException(503, "The review page isn't set up yet (REVIEW_PASSCODE is missing).")
-    if not passcode or not hmac.compare_digest(passcode.encode(), expected.encode()):
-        time.sleep(0.6)  # slow down guessing
-        raise HTTPException(401, "Wrong passcode.")
-
-
-@app.get("/api/review/submissions")
-def review_list(x_review_passcode: str | None = Header(default=None)):
-    _check_passcode(x_review_passcode)
-    store = get_store(BASE)
-    items = sorted(store.all(), key=lambda d: d.get("submitted_at", ""), reverse=True)
-    return {"items": items, "storage": store.kind, "storage_error": store_status()}
-
-
-class ReviewIn(BaseModel):
-    status: str
-    comment: str = ""
-    reviewer: str = ""
-
-
-@app.post("/api/review/{sid}")
-def review_update(sid: str, body: ReviewIn, x_review_passcode: str | None = Header(default=None)):
-    _check_passcode(x_review_passcode)
-    if body.status not in STATUSES:
-        raise HTTPException(400, "Unknown status.")
-    if body.status == "changes_requested" and not body.comment.strip():
-        return {"ok": False, "message": "Add a comment so the faculty member knows what to change."}
-    d = get_store(BASE).update(sid, {"status": body.status, "reviewer_comment": body.comment.strip()[:2000],
-                                     "reviewer": body.reviewer.strip()[:120],
-                                     "reviewed_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")})
-    if not d:
-        raise HTTPException(404, "Submission not found.")
-    return {"ok": True, "item": d}
+@app.get("/api/audit/{job_id}/excel")
+def audit_excel(job_id: str):
+    """Coordinator's review file. Built on the fly; nothing is saved on the server."""
+    job = AUDITS.get(job_id)
+    if not job or not job["finished"]:
+        raise HTTPException(404, "Run the audit first (or it's still running).")
+    data = build_review_xlsx({"folder_name": job["folder_name"], "results": job["results"]})
+    name = re.sub(r"[^\w-]+", "_", job["folder_name"] or "folder")
+    fname = f"syllabus-review-{name}-{datetime.now().strftime('%Y-%m-%d')}.xlsx"
+    return Response(data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
