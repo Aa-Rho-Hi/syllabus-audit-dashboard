@@ -343,22 +343,46 @@ const viewHTML = (text, issues) => paint(text, merged(text, spanRanges(text, iss
 
 /* =========== objectives editor =========== */
 const IGNORED = new Set();   // objectives the professor chose to handle themselves
-const normObj = t => String(t).replace(/^\s*(?:[-*\u2022]|\(?\d+[.)])\s*/, "").trim().toLowerCase();
+const normObj = t => String(t).replace(/^\s*(?:[-*\u2022]|\(?\d+[.)])\s*/, "").replace(/\s+/g, " ").trim().toLowerCase();
+
+/* Where each objective sits in the box: same line-joining rules as the server, so an objective
+   with double spaces or wrapped onto two lines can still be found and replaced. */
+function objectiveSpans(text){
+  const spans = []; let off = 0;
+  for (const raw of text.split("\n")){
+    const start = off, end = off + raw.length; off = end + 1;
+    const line = raw.replace(/[\u00a0\t]/g, " ").trim();
+    if (!line) continue;
+    const prev = spans[spans.length - 1];
+    const marked = BULLET.test(line) || NUMBER.test(line);
+    const body = line.replace(BULLET, "").replace(NUMBER, "").trim();
+    const continues = prev && !marked && !/:$/.test(prev.text) && !LEAD_IN.test(body) &&
+      (/^[a-z(,;]/.test(body) || (!/[.;!?]$/.test(prev.text) && !isVerbStart(body)));
+    if (continues){ prev.end = end; prev.text += " " + line; }
+    else spans.push({start, end, text: line});
+  }
+  return spans.filter(sp => isObjLine(sp.text));
+}
+function findSpan(objText, text){
+  const want = normObj(objText);
+  return objectiveSpans(text).find(sp => normObj(sp.text) === want) || null;
+}
 const ta = $("#ta"), bd = $("#backdrop");
 function aiFresh(){ return aiResults && lastAiText === ta.value; }
 function aiRangesInEditor(text){
   if (!aiFresh()) return [];
   const out = []; let cursor = 0;
   aiResults.objectives.forEach((o, i) => {
-    const pos = text.indexOf(o, cursor); if (pos < 0) return; cursor = pos + o.length;
+    const sp = findSpan(o, text); if (!sp) return;
     const r = (aiResults.llm || []).find(x => x.index === i);
-    if (r) spanRanges(o, r.issues).forEach(x => out.push({...x, start:x.start+pos, end:x.end+pos}));
+    const raw = text.slice(sp.start, sp.end);
+    if (r) spanRanges(raw, r.issues).forEach(x => out.push({...x, start:x.start+sp.start, end:x.end+sp.start}));
   });
   return out;
 }
 /* one list of problems, from AI when available, otherwise from regex */
 function problems(){
-  const text = ta.value, lines = text.split("\n").filter(isObjLine);
+  const text = ta.value, lines = objectiveSpans(text).map(sp => sp.text);
   if (aiFresh() && aiResults.llm){
     return aiResults.objectives.map((o, i) => {
       const a = aiResults.llm.find(x => x.index === i) || {}, rx = aiResults.regex[i] || {flags:[]};
@@ -387,14 +411,14 @@ function render(){
   const text = ta.value;
   bd.innerHTML = paint(text, merged(text, aiRangesInEditor(text)));
   bd.scrollTop = ta.scrollTop;
-  const n = text.split("\n").filter(isObjLine).length, probs = n ? problems() : [];
+  const n = objectiveSpans(text).length, probs = n ? problems() : [];
   const st = $("#status");
   if (!n) st.innerHTML = "";
   else if (aiState === "busy") st.innerHTML = `<span class="spin"></span><span class="muted">Checking with AI…</span>`;
   else if (!probs.length) st.innerHTML = `<span class="ok">&#10003; All ${n} objective${n>1?"s":""} look good</span>`;
   else st.innerHTML = `<span class="bad">${probs.length} of ${n} need${probs.length===1?"s":""} a fix</span>` +
        (aiState === "off" ? ` <span class="muted small">· AI unavailable, basic check only</span>` : "");
-  const ign = text.split("\n").filter(isObjLine).filter(l => IGNORED.has(normObj(l))).length;
+  const ign = objectiveSpans(text).filter(sp => IGNORED.has(normObj(sp.text))).length;
   if (n && aiState !== "busy" && ign) st.innerHTML += ` <span class="muted small">· ${ign} ignored <button class="link small" id="unignore">show again</button></span>`;
   $("#fix-all").classList.toggle("hidden", !probs.some(p => p.fix) || aiState === "busy");
   $("#problems").innerHTML = probs.map(p => `<div class="problem">
@@ -455,8 +479,12 @@ async function runAI(){
   if (seq === aiSeq) render();
 }
 function replaceLine(oldText, newBody){
-  const stem = (oldText.match(/^\s*(?:[-*\u2022]|\(?\d+[.)])\s*/) || [""])[0];
-  ta.value = ta.value.replace(oldText, stem + newBody);
+  const text = ta.value, sp = findSpan(oldText, text);
+  if (!sp) return false;
+  const first = text.slice(sp.start, sp.end).split("\n")[0];
+  const stem = (first.match(/^\s*(?:[-*\u2022]|\(?\d+[.)\]])\s*/) || [""])[0];   // keep their bullet / number
+  ta.value = text.slice(0, sp.start) + stem + newBody + text.slice(sp.end);
+  return true;
 }
 $("#status").addEventListener("click", e => { if (e.target.id === "unignore"){ IGNORED.clear(); render(); } });
 $("#problems").addEventListener("click", e => {
@@ -479,7 +507,7 @@ function swapLeadingAvoid(line){
 }
 $("#fix-all").onclick = () => {
   const before = ta.value; let n = 0;
-  problems().forEach(p => { if (p.fix && ta.value.includes(p.text)){ replaceLine(p.text, p.fix); n++; } });
+  problems().forEach(p => { if (p.fix && replaceLine(p.text, p.fix)) n++; });
   if (!n) return;
   aiResults = null; render(); scheduleAI();
   $("#fixbar").innerHTML = `&#10003; Fixed ${n}. <button class="link" id="undo">Undo</button>`;
