@@ -17,23 +17,26 @@ def _norm(text: str) -> str:
     return re.sub(r"\s+", " ", t).strip()
 
 
-def find_overlaps(results: list[dict]) -> list[dict]:
+def find_overlaps(results: list[dict], group=None) -> list[dict]:
     """Returns pairs: {a_course, a_idx, a_text, b_course, b_idx, b_text, score, kind}.
-    Also annotates each objective dict in `results` with o["overlaps"] = ["ECEN 215 #1 (identical)", ...]."""
+    Also annotates each objective dict in `results` with o["overlaps"] = ["ECEN 215 #1 (identical)", ...].
+    group(result) -> key: objectives in results with the same key never count as overlaps
+    (e.g. 19 sections of ECEN 325 sharing one syllabus). Defaults to the course label."""
+    group = group or (lambda r: r["course"])
     items = []
     for r in results:
         for i, o in enumerate(r.get("objectives", []), 1):
             o["overlaps"] = []
             n = _norm(o["text"])
             if len(n.split()) >= 4:            # very short objectives match too easily
-                items.append((r["course"], i, o, n))
+                items.append((r["course"], i, o, n, group(r)))
 
     pairs = []
     for x in range(len(items)):
-        ca, ia, oa, na = items[x]
+        ca, ia, oa, na, ga = items[x]
         for y in range(x + 1, len(items)):
-            cb, ib, ob, nb = items[y]
-            if ca == cb:
+            cb, ib, ob, nb, gb = items[y]
+            if ga == gb:
                 continue
             score = max(fuzz.ratio(na, nb), fuzz.token_sort_ratio(na, nb))
             if score < NEARLY:

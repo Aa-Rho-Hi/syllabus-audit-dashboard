@@ -1,0 +1,12 @@
+{"sys":{"success":true},"pagination":{"total":1},"items":[{"doc_data":{
+ "code":"mjombsn1e","status":"completed","entity_type":"section","title":"ECEN 314 502 (41862)","sub_title":"SIGNALS AND SYSTEMS",
+ "term":{"name":"Fall 2025 - College Station"},
+ "editors":[{"accounts":[{"email":"someone@tamu.edu","ca_7":"123456789"}]}],
+ "is_missing_required_content":false,"modified":"2026-01-16T05:51:04-06:00",
+ "properties":{"subject_name":"ECEN","course_number":"314","ca_7":"999"},
+ "components":[
+  {"sort_order":0,"component_type":"content","is_public":true,"html":"<div class=\"component-wrapper\"><div class=\"component\"><app-heading-component-name></app-heading-component-name><div class=\"component-body\"><div class=\"fr-view\"><p><img src=\"/ui/account-image/x\" alt=\"Texas A&amp;M Logo\"></p><h1>ECEN 314 Syllabus</h1></div></div></div></div>"},
+  {"sort_order":3,"component_type":"instructor","is_public":true,"html":"<div class=\"component\"><app-heading-component-name><h2 class=\"component-content-item app-name-view component-name\"> Instructor Details \n</h2></app-heading-component-name><div class=\"component-body\"><div class=\"heading-cells-container\" style=\"display:flex\"><div><span class=\"cell-content\"> Sam Example </span></div></div></div></div>"},
+  {"sort_order":7,"component_type":"content","is_public":true,"html":"<div class=\"component\"><app-heading-component-name><h2 class=\"component-content-item app-name-view component-name ng-star-inserted\"> Course Learning Outcomes\n</h2></app-heading-component-name><div class=\"component-body\"><div class=\"fr-view\"><p>Upon completion of this course, the learner will be able to:</p><ul><li>understand theoretical and mathematical concepts about signals and systems; and to</li><li>apply the concepts to analyze and design systems that process real-world signals.&nbsp;<p><br></p></li></ul><p><br></p></div></div></div>"},
+  {"sort_order":9,"component_type":"content","is_public":true,"html":"<div class=\"component\"><app-heading-component-name><h2 class=\"component-name\"> Grading Policy\n</h2></app-heading-component-name><div class=\"component-body\"><div class=\"fr-view\"><p>20% Homework</p></div></div></div>"}
+ ]}}]}

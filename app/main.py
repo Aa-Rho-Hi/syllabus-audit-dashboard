@@ -27,6 +27,7 @@ from .matcher import (name_score, number_regex,  # noqa: E402
 from .sources import AccessError, Scanner, TextCache, fixed_folder, resolve_source  # noqa: E402
 from .overlap import find_overlaps                  # noqa: E402
 from .report import build_review_xlsx               # noqa: E402
+from .audit_core import check_items                 # noqa: E402
 from .verbs import (ALLOWED, AVOID_PHRASES, AVOID_VERBS, BLOOMS,  # noqa: E402
                     SUGGESTIONS, avoid_terms, clean_objective, final_status, regex_check,
                     split_objectives)
@@ -253,33 +254,7 @@ def _audit_one(sc: Scanner, f: dict, use_llm: bool) -> dict:
         ai_items = llm.extract_objectives(text)
         if ai_items:
             items, method = ai_items, "llm"
-    if not items:
-        return {**base, "status": "no_objectives", "objectives": [],
-                "summary": "No learning objectives section found."}
-
-    rx = regex_check("\n".join(items))
-    ai = llm.check_objectives([r["text"] for r in rx]) if use_llm and any(r["status"] != "ok" for r in rx) else None
-    objs = []
-    for r in rx:
-        a = next((x for x in (ai or []) if x.get("index") == r["index"]), {})
-        status = final_status(r, a)
-        suggestion = a.get("suggestion") if status != "ok" else None
-        if not suggestion and r["flags"] and r["leading_verb"] and r["flags"][0]["start"] == r["text"].find(r["leading_verb"]):
-            sug = r["flags"][0]["suggest"]
-            if sug:
-                suggestion = sug[0] + r["text"][r["text"].find(r["leading_verb"]) + len(r["leading_verb"]):]
-        objs.append({
-            "text": r["text"], "status": status,
-            "bloom_level": a.get("bloom_level") or (r["bloom_levels"] or [None])[0],
-            "avoid_terms": [fl["base"] for fl in r["flags"]],
-            "reasons": [i.get("reason") for i in (a.get("issues") or []) if i.get("reason")
-                        and str(i.get("span", "")).lower() not in {fl["match"].lower() for fl in r["flags"]}],
-            "suggestion": suggestion,
-        })
-    bad = [o for o in objs if o["status"] != "ok"]
-    status = "clean" if not bad else ("avoid" if any(o["avoid_terms"] or o["status"] == "avoid" for o in bad) else "vague")
-    return {**base, "status": status, "objectives": objs, "method": method,
-            "summary": f"{len(bad)} of {len(objs)} objectives need changes" if bad else f"All {len(objs)} objectives look good"}
+    return {**base, **check_items(items, use_llm, method)}
 
 
 class AuditIn(FolderIn):

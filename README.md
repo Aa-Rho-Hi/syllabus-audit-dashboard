@@ -19,6 +19,44 @@ Professor types a course number (and optionally a name). The app searches the sy
 Extras:
 - **Fix all**: rewrites every flagged objective in one click (AI rewrites; without AI it swaps avoid-list verbs like Understand → Explain). Undo is right there.
 
+## Reviewer: pull everything from Simple Syllabus and audit it
+
+For reviewing the Simple Syllabus approval queue on your own computer. Nothing goes through the hosted app.
+
+**Windows:** double-click `run_review.bat`. **Mac:** `./run_review.sh`. First run sets itself up (needs Python 3 and Edge or Chrome).
+
+1. A browser window opens on tamu.simplesyllabus.com. Log in with your NetID like normal. It closes by itself once you're in, and remembers the login for next time. The login is kept in your own private app-data folder (not the tool folder), is thrown away after 2 weeks without use, and `run_review.bat --logout` forgets it right away.
+2. It downloads every ECEN syllabus that's **awaiting approval** (your To Do column) for the current and upcoming terms.
+3. It audits them and opens the Excel report (same sheets as the web reviewer tab). Click a file name in the report to open that syllabus's PDF.
+
+Everything lands in `syllabi/<today's date>/`:
+
+```
+syllabi/2026-10-18/
+  Spring 2027 - College Station/
+    ECEN_314_200_38440_hqq0vr03t.pdf     <- readable copy of each syllabus
+    _data/ECEN_314_200_38440_hqq0vr03t.json  <- what the audit reads
+  manifest.json
+  syllabus-review-2026-10-18_0930.xlsx
+```
+
+Options go after the file name:
+
+| Want | Run |
+|---|---|
+| One term | `run_review.bat --term "Spring 2027"` |
+| Finished syllabi instead of the queue | `run_review.bat --status completed` |
+| Everything in the term | `run_review.bat --status all` |
+| Only some courses | `run_review.bat --courses 314 403` |
+| Another department | `run_review.bat --subject CSCE` |
+| Forget the saved login | `run_review.bat --logout` |
+| Python can't reach Simple Syllabus, but your browser can | paste `reviewer/export_snippet.js` into the browser console on Simple Syllabus, then `python -m reviewer.import_export <saved file>` |
+| Re-run just the audit | `.venv\Scripts\python -m reviewer.audit --open` |
+
+How it works: the list comes from Simple Syllabus's documented `/api2/doc-public` endpoint. Published syllabi come from `/api2/doc-full-page-get`. Drafts (awaiting approval, in progress) aren't published yet, so they come from `/api2/heading-component`, the same call their editor makes, which has the version the professor submitted. All of it runs with your browser login, so you only get what your account can already see. If one shows "Couldn't see the content", your account isn't allowed to open it. The saved files keep only the syllabus itself (no approver lists or account IDs). AI rewrites turn on if `LLM_API_KEY` is set in `.env`.
+
+Safety: syllabus text is written by professors, so it's treated as untrusted. PDFs are made with JavaScript off, no login cookies and no outside network; the Excel report never contains formulas; file names can't leave the download folder; and disguised banned verbs (look-alike letters, invisible characters, `Under<b>stand</b>`, `under-stand`) are caught and flagged. See `tests/test_adversarial.py`.
+
 ## Regex + LLM, so one failing doesn't break it
 
 | Job | Regex layer (always on) | LLM layer (when a key is set) | If the LLM fails |
