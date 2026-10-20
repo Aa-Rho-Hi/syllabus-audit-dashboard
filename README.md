@@ -19,6 +19,48 @@ Professor types a course number (and optionally a name). The app searches the sy
 Extras:
 - **Fix all**: rewrites every flagged objective in one click (AI rewrites; without AI it swaps avoid-list verbs like Understand → Explain). Undo is right there.
 
+## Reviewer: pull everything from Simple Syllabus and audit it
+
+For reviewing the Simple Syllabus approval queue on your own computer. Nothing goes through the hosted app.
+
+**Easiest:** run the web app on your own computer (`python -m uvicorn app.main:app --port 8000`), open http://localhost:8000/reviewer and use the **Simple Syllabus** tab. Pick the subject/status/term, click **Download & audit**, log in in the window that pops up, and the results, Excel and PDFs show up on the page.
+
+**Or from the command line:** **Windows:** double-click `run_review.bat`. **Mac:** `./run_review.sh`. First run sets itself up (needs Python 3 and Edge or Chrome).
+
+1. A browser window opens on tamu.simplesyllabus.com. Log in with your NetID like normal. It closes by itself once you're in, and remembers the login for next time. The login is kept in your own private app-data folder (not the tool folder), is thrown away after 2 weeks without use, and `run_review.bat --logout` forgets it right away.
+2. It reads the **To Do** column on your dashboard (whatever term the dashboard's Term box is set to) and downloads just those syllabi. If it can't read the column it says so and downloads every ECEN syllabus awaiting approval instead. `dashboard-check.json` in the folder lists what it saw and anything it couldn't match.
+3. It audits them and opens the Excel report (same sheets as the web reviewer tab). Click a file name in the report to open that syllabus's PDF.
+
+Everything lands in `syllabi/<today's date>/`:
+
+```
+syllabi/2026-10-18/
+  Spring 2027 - College Station/
+    ECEN_314_200_38440_hqq0vr03t.pdf     <- readable copy of each syllabus
+    _data/ECEN_314_200_38440_hqq0vr03t.json  <- what the audit reads
+  manifest.json
+  syllabus-review-2026-10-18_0930.xlsx
+```
+
+Options go after the file name:
+
+| Want | Run |
+|---|---|
+| Every ECEN syllabus awaiting approval, not just your To Do | `run_review.bat --everyone` |
+| Exact sections, by the number in brackets on the card | `run_review.bat --crns 56552 38440` |
+| One term | `run_review.bat --term "Spring 2027"` |
+| Finished syllabi instead of the queue | `run_review.bat --everyone --status completed` |
+| Everything in the term | `run_review.bat --everyone --status all` |
+| Only some courses | `run_review.bat --courses 314 403` |
+| Another department | `run_review.bat --subject CSCE` |
+| Forget the saved login | `run_review.bat --logout` |
+| Python can't reach Simple Syllabus, but your browser can | paste `reviewer/export_snippet.js` into the browser console on Simple Syllabus, then `python -m reviewer.import_export <saved file>` |
+| Re-run just the audit | `.venv\Scripts\python -m reviewer.audit --open` |
+
+How it works: your queue is read off the To Do column of your dashboard (cards like `ECEN 314 200 (38440)`), then matched by CRN to Simple Syllabus's documented `/api2/doc-public` list. Published syllabi come from `/api2/doc-full-page-get`. Drafts (awaiting approval, in progress) aren't published yet, so they come from `/api2/heading-component`, the same call their editor makes, which has the version the professor submitted. All of it runs with your browser login, so you only get what your account can already see. If one shows "Couldn't see the content", your account isn't allowed to open it. The saved files keep only the syllabus itself (no approver lists or account IDs). AI rewrites turn on if `LLM_API_KEY` is set in `.env`.
+
+Safety: syllabus text is written by professors, so it's treated as untrusted. PDFs are made with JavaScript off, no login cookies and no outside network; the Excel report never contains formulas; file names can't leave the download folder; and disguised banned verbs (look-alike letters, invisible characters, `Under<b>stand</b>`, `under-stand`) are caught and flagged. See `tests/test_adversarial.py`.
+
 ## Regex + LLM, so one failing doesn't break it
 
 | Job | Regex layer (always on) | LLM layer (when a key is set) | If the LLM fails |

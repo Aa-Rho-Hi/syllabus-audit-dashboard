@@ -266,10 +266,15 @@ def used_as_noun(text: str, start: int, kind: str) -> bool:
 
 def final_status(rx: dict, ai: dict | None) -> str:
     """Combine the pattern check and the AI. The approved list is the authority on verbs:
-    the AI can't call an approved verb 'avoid'/'not listed', and can't clear a listed avoid word."""
+    the AI can't call an approved verb 'avoid'/'not listed', can't clear a listed avoid word,
+    and can't approve a verb that isn't on the list (objective text could try to talk it into that)."""
     status = (ai or {}).get("status") or rx["status"]
+    if status not in ("ok", "avoid", "not_listed", "vague"):
+        status = rx["status"]
     if rx["flags"] and status == "ok":
         return "avoid"
+    if rx["status"] == "not_listed" and status == "ok":
+        return "not_listed"
     if not rx["flags"] and rx["status"] == "ok" and status in ("avoid", "not_listed"):
         return "ok"
     return status
@@ -306,3 +311,40 @@ def regex_check(text: str) -> list[dict]:
             "status": status, "flags": flags,
         })
     return results
+
+
+# ---- text that tries (or happens) to slip past the checks ----
+_CONFUSABLES = str.maketrans({
+    # Cyrillic / Greek letters that look exactly like Latin ones
+    "а": "a", "е": "e", "о": "o", "р": "p", "с": "c", "у": "y", "х": "x", "і": "i", "ј": "j", "ѕ": "s",
+    "ԁ": "d", "ɡ": "g", "һ": "h", "ӏ": "l", "ԛ": "q", "ԝ": "w", "А": "A", "В": "B", "Е": "E", "К": "K",
+    "М": "M", "Н": "H", "О": "O", "Р": "P", "С": "C", "Т": "T", "У": "Y", "Х": "X", "І": "I", "Ј": "J",
+    "Ѕ": "S", "α": "a", "ε": "e", "ι": "i", "κ": "k", "ν": "v", "ο": "o", "ρ": "p", "τ": "t", "υ": "u",
+    "χ": "x", "Α": "A", "Β": "B", "Ε": "E", "Ζ": "Z", "Η": "H", "Ι": "I", "Κ": "K", "Μ": "M", "Ν": "N",
+    "Ο": "O", "Ρ": "P", "Τ": "T", "Υ": "Y", "Χ": "X",
+})
+_INVISIBLE_RE = re.compile(r"[\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180e\u200b-\u200f\u202a-\u202e"
+                           r"\u2060-\u2064\u2066-\u206f\u3164\ufeff\uffa0]")
+
+
+def normalize_objective(text: str) -> tuple[str, bool]:
+    """Returns (plain text, tampered). Folds full-width letters, look-alike Cyrillic/Greek letters
+    and invisible characters back to plain text so 'Undеrstand' (Cyrillic е) is still caught.
+    tampered=True when anything like that was found inside a word."""
+    import unicodedata
+    raw = text or ""
+    t = _INVISIBLE_RE.sub("", raw)
+    t = unicodedata.normalize("NFKC", t).translate(_CONFUSABLES)
+    t = re.sub(r"[ \t\u00a0]+", " ", t).strip()
+    hyphen_hit = False
+    # 'under-stand', 'fami-liar with': join a hyphenated word only if that reveals a banned term
+    for m in reversed(list(re.finditer(r"\b[A-Za-z]+(?:[-\u2010\u2011][A-Za-z]+)+\b", t))):
+        joined = re.sub(r"[-\u2010\u2011]", "", m.group(0))
+        cand = t[:m.start()] + joined + t[m.end():]
+        lo, hi = m.start(), m.start() + len(joined)
+        if any(x.start() < hi and x.end() > lo for x in AVOID_RE.finditer(cand)) and \
+                not any(x.start() < m.end() and x.end() > m.start() for x in AVOID_RE.finditer(t)):
+            t, hyphen_hit = cand, True
+    tampered = hyphen_hit or bool(re.search(r"\w[\u00ad\u200b-\u200f\u2060-\u2064\ufeff]+\w", raw)) or \
+        any(ch in raw for ch in "аеорсухіјѕԁɡһӏԛԝαεικνορτυχ") and bool(re.search(r"[A-Za-z]", raw))
+    return t, tampered

@@ -9,3 +9,5 @@ tests
 docs
 .git
 .incoming
+syllabi/
+.ss-browser/
