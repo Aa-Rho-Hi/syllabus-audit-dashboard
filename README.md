@@ -23,7 +23,7 @@ Extras:
 
 For reviewing the Simple Syllabus approval queue on your own computer. Nothing goes through the hosted app.
 
-**Easiest:** run the web app on your own computer (`python -m uvicorn app.main:app --port 8000`), open http://localhost:8000/reviewer and use the **Simple Syllabus** tab. Pick the subject/status/term, click **Download & audit**, log in in the window that pops up, and the results, Excel and PDFs show up on the page.
+**Easiest:** **Windows:** double-click `run_web.bat`. **Mac/Linux:** `./run_web.sh` (Linux without Chrome or Edge gets its own Chromium the first time). It sets itself up, starts the app on your own computer and opens http://localhost:8000/reviewer. Keep its window open and use the **Simple Syllabus** tab ("My To Do column" is the default). Pick the subject/status/term, click **Download & audit**, log in in the window that pops up, and the results, Excel and PDFs show up on the page. **Stop** cancels a run.
 
 **Or from the command line:** **Windows:** double-click `run_review.bat`. **Mac:** `./run_review.sh`. First run sets itself up (needs Python 3 and Edge or Chrome).
 

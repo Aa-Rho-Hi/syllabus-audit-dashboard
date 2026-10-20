@@ -98,7 +98,7 @@ def args(**kw):
 
 def test_my_docs_uses_dashboard_and_all_statuses(tmp_path, monkeypatch):
     asked = []
-    monkeypatch.setattr(dashboard, "read_todo", lambda page, progress: {
+    monkeypatch.setattr(dashboard, "read_todo", lambda page, progress, **kw: {
         "labels": ["ECEN 303 503 (56552)", "ECEN 314 200 (38440)"], "count": 2, "term": "Spring 2027 - College Station"})
     monkeypatch.setattr(pull, "list_docs", lambda req, a: asked.append(a.status) or docs())
     got = pull.my_docs(SimpleNamespace(page=None), args(), tmp_path, progress=lambda m: None)
@@ -110,7 +110,7 @@ def test_my_docs_uses_dashboard_and_all_statuses(tmp_path, monkeypatch):
 
 def test_my_docs_falls_back_when_column_unreadable(tmp_path, monkeypatch):
     msgs = []
-    monkeypatch.setattr(dashboard, "read_todo", lambda page, progress: {"labels": [], "problem": "nope"})
+    monkeypatch.setattr(dashboard, "read_todo", lambda page, progress, **kw: {"labels": [], "problem": "nope"})
     monkeypatch.setattr(pull, "list_docs", lambda req, a: [d for d in docs() if d.get("status") == a.status])
     got = pull.my_docs(SimpleNamespace(page=None), args(), tmp_path, progress=msgs.append)
     assert len(got) == 2 and any("Falling back" in m for m in msgs)
@@ -118,7 +118,7 @@ def test_my_docs_falls_back_when_column_unreadable(tmp_path, monkeypatch):
 
 def test_empty_todo_downloads_nothing(tmp_path, monkeypatch):
     msgs = []
-    monkeypatch.setattr(dashboard, "read_todo", lambda page, progress: {"labels": [], "count": 0})
+    monkeypatch.setattr(dashboard, "read_todo", lambda page, progress, **kw: {"labels": [], "count": 0})
     monkeypatch.setattr(pull, "list_docs", lambda req, a: docs())
     assert pull.my_docs(SimpleNamespace(page=None), args(), tmp_path, progress=msgs.append) == []
     assert any("empty" in m for m in msgs)

@@ -45,6 +45,7 @@ class Job:
         self.results, self.overlaps = None, None
         self.folder = self.excel = None
         self.started = None
+        self.stop_event = threading.Event()
 
     def snapshot(self) -> dict:
         with self.lock:
@@ -58,6 +59,8 @@ class Job:
             self.log.append(msg.strip())
             if msg.strip().startswith("[") and "/" in msg.split("]")[0]:
                 self.done += 1
+            if self.stop_event.is_set():
+                return
             if msg.startswith("Log in"):
                 self.state = "login"
             elif msg.startswith("Logged in"):
@@ -65,7 +68,7 @@ class Job:
 
     def start(self, subject: str, term: str, status: str, courses: list[str], use_llm: bool) -> bool:
         with self.lock:
-            if self.state in ("starting", "login", "downloading", "auditing"):
+            if self.state in ("starting", "login", "downloading", "auditing", "stopping"):
                 return False
         self.reset()
         self.state, self.started = "starting", time.time()
@@ -76,17 +79,31 @@ class Job:
         threading.Thread(target=self._run, args=(args, use_llm), daemon=True).start()
         return True
 
+    def stop(self) -> bool:
+        """Ask the running job to stop. It ends at the next safe point and closes the browser windows."""
+        with self.lock:
+            if self.state not in ("starting", "login", "downloading", "auditing"):
+                return False
+            self.stop_event.set()
+            self.state = "stopping"
+        return True
+
     def _run(self, args, use_llm: bool):
         from reviewer.audit import run_audit
-        from reviewer.pull import run_pull
+        from reviewer.pull import Stopped, run_pull
+        stop = self.stop_event
         try:
             folder = SYLLABI / datetime.now().strftime("%Y-%m-%d_%H%M%S")
             self.folder = folder
 
             def on_total(n):
                 with self.lock:
-                    self.total, self.state = n, "downloading"
-            manifest = run_pull(args, folder, progress=self._log, on_total=on_total)
+                    self.total = n
+                    if not stop.is_set():
+                        self.state = "downloading"
+            manifest = run_pull(args, folder, progress=self._log, on_total=on_total, stop=stop)
+            if stop.is_set():
+                raise Stopped("Stopped.")
             if not manifest:
                 with self.lock:
                     self.state, self.message = "done", "No syllabi matched. Try another term or status."
@@ -103,6 +120,9 @@ class Job:
                 self.results, self.overlaps, self.excel = results, overlaps, xlsx
                 self.state = "done"
                 self.message = f"Saved to {folder}"
+        except Stopped:
+            with self.lock:
+                self.state, self.message = "stopped", f"Stopped. Anything downloaded so far is in {self.folder}"
         except BaseException as e:               # SystemExit from login timeout etc.
             with self.lock:
                 self.state, self.message = "error", str(e) or type(e).__name__

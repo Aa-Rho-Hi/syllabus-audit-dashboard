@@ -138,7 +138,16 @@ class _Resp:
         return json.loads(self._text)
 
 
-def login(pw, progress=say):
+class Stopped(Exception):
+    """Stop was pressed in the web app's Simple Syllabus tab."""
+
+
+def check_stop(stop):
+    if stop is not None and stop.is_set():
+        raise Stopped("Stopped.")
+
+
+def login(pw, progress=say, stop=None):
     """Open a visible browser and wait for the reviewer to finish the TAMU login.
     Returns (context, PageRequest). The caller closes the context when the download is done."""
     ctx = launch(pw, headless=False, user_data_dir=str(prepare_profile()), viewport={"width": 1200, "height": 850})
@@ -151,6 +160,7 @@ def login(pw, progress=say):
                      "Leave the window open; it closes by itself when the download is done.")
         deadline = time.time() + LOGIN_TIMEOUT_S
         while not who:
+            check_stop(stop)
             if time.time() > deadline:
                 raise SystemExit("Timed out waiting for login. Run it again when you're ready.")
             time.sleep(2)
@@ -277,7 +287,7 @@ def list_docs(request, args) -> list[dict]:
     return sorted(keep, key=lambda d: (d.get("term_name") or "", d.get("title") or ""))
 
 
-def my_docs(request, args, out: Path, progress=say) -> list[dict]:
+def my_docs(request, args, out: Path, progress=say, stop=None) -> list[dict]:
     """--mine / --crns: only the reviewer's own queue. Reads the To Do column off their dashboard
     (or takes the CRNs they typed), then finds those sections in the public list, whatever their status."""
     crns = list(getattr(args, "crns", None) or [])
@@ -285,7 +295,8 @@ def my_docs(request, args, out: Path, progress=say) -> list[dict]:
     if crns:
         wanted, term = crns, args.term
     else:
-        todo = dashboard.read_todo(request.page, progress)
+        todo = dashboard.read_todo(request.page, progress, stop=stop)
+        check_stop(stop)
         check.update({k: todo.get(k) for k in ("count", "capped", "term", "problem", "api")})
         wanted, term = todo["labels"], todo.get("term") or ""
         if not wanted:
@@ -349,28 +360,31 @@ def main(argv=None):
     return 0
 
 
-def run_pull(args, out: Path, progress=say, on_total=None) -> list[dict]:
+def run_pull(args, out: Path, progress=say, on_total=None, stop=None) -> list[dict]:
     """The whole download. Used by the command line and by the web app's Simple Syllabus tab.
-    progress(msg) gets status lines; on_total(n) is called once the list is known."""
+    progress(msg) gets status lines; on_total(n) is called once the list is known.
+    stop: a threading.Event; once it's set the run raises Stopped at the next safe point."""
     from playwright.sync_api import sync_playwright
 
     out.mkdir(parents=True, exist_ok=True)
     manifest = []
     with sync_playwright() as pw:
-        session, request = login(pw, progress)
+        session, request = login(pw, progress, stop)
         browser = launch(pw, headless=True)          # only for making PDFs; never talks to Simple Syllabus
         try:
             if getattr(args, "mine", False) or getattr(args, "crns", None):
-                docs = my_docs(request, args, out, progress)
+                docs = my_docs(request, args, out, progress, stop)
                 progress(f"Found {len(docs)} syllabi to download.")
             else:
                 docs = list_docs(request, args)
                 progress(f"Found {len(docs)} {args.subject} syllabi ({args.status.replace('_', ' ')}"
                          f"{', ' + args.term if args.term else ''}).")
+            check_stop(stop)
             if on_total:
                 on_total(len(docs))
             page = render_page(browser) if docs else None
             for n, d in enumerate(docs, 1):
+                check_stop(stop)          # outside the try, so it isn't counted as one bad syllabus
                 try:
                     doc, status = fetch_doc(request, d)
                     entry = save_doc(doc, status, out, page, args.no_pdf)

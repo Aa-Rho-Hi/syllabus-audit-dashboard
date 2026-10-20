@@ -272,6 +272,7 @@ dialog::backdrop{background:rgba(20,10,10,.35)}
           <div style="width:150px"><label for="ss-term">Term <span class="muted">(optional)</span></label><input id="ss-term" type="text" placeholder="Spring 2027"></div>
           <div class="grow"><label for="ss-courses">Courses <span class="muted">(optional)</span></label><input id="ss-courses" type="text" placeholder="314 403"></div>
           <button class="btn" id="ss-run">Download &amp; audit</button>
+          <button class="ghost hidden" id="ss-stop" type="button">Stop</button>
         </form>
         <div id="ss-progress"></div>
         <div class="row hidden" id="ss-actions" style="margin-top:12px">
@@ -862,16 +863,20 @@ let ssTimer = null, ssData = null;
 const ssState = {filter:"all", open:new Set()};
 bindAuditView("#ss-out", ssState, () => ssData && renderAuditInto("#ss-out", ssData, ssState));
 const SS_STAGE = {starting:"Starting…", login:"Waiting for you to log in to Simple Syllabus in the browser window that opened…",
-                  downloading:"Downloading syllabi and making PDFs…", auditing:"Checking learning objectives…"};
+                  downloading:"Downloading syllabi and making PDFs…", auditing:"Checking learning objectives…",
+                  stopping:"Stopping… the browser windows close in a few seconds."};
 function ssRender(s){
-  const busy = ["starting","login","downloading","auditing"].includes(s.state);
+  const busy = ["starting","login","downloading","auditing","stopping"].includes(s.state);
   const btn = $("#ss-run"); btn.disabled = busy;
+  $("#ss-stop").classList.toggle("hidden", !busy); $("#ss-stop").disabled = s.state === "stopping";
   btn.innerHTML = busy ? '<span class="spin"></span>Working' : (s.state === "done" ? "Run again" : "Download &amp; audit");
   let h = "";
   if (busy){
     const pct = s.total ? Math.round(100 * s.done / s.total) : (s.state === "auditing" ? 100 : 4);
     h += `<div class="note ${s.state === "login" ? "warn" : "info"}"><b>${esc(SS_STAGE[s.state])}</b>${s.total ? `${s.done} of ${s.total} syllabi` : ""}</div>
           <div class="progress"><i style="width:${pct}%"></i></div>`;
+  } else if (s.state === "stopped"){
+    h += `<div class="note info"><b>Stopped.</b>Pick what you want and click Download &amp; audit to start again.</div>`;
   } else if (s.state === "error"){
     h += `<div class="note bad"><b>It stopped before finishing.</b>${esc(s.message)}</div>`;
   } else if (s.state === "done" && s.message){
@@ -909,6 +914,11 @@ $("#ss-form").addEventListener("submit", async e => {
   }
   ssState.filter = "all"; ssState.open.clear(); ssData = null; ssPoll();
 });
+$("#ss-stop").onclick = async () => {
+  $("#ss-stop").disabled = true;
+  await fetch("/api/ss/stop", {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"}).catch(() => {});
+  ssPoll();
+};
 $("#ss-folder").onclick = () => fetch("/api/ss/open-folder", {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"});
 
 /* =========== start =========== */

@@ -108,10 +108,10 @@ def _shape(x, depth=0):
     return type(x).__name__
 
 
-def read_todo(page, progress=print, reload: bool = True, timeout_s: int = 45) -> dict:
+def read_todo(page, progress=print, reload: bool = True, timeout_s: int = 45, stop=None) -> dict:
     """Read the To Do column of the dashboard that's open in `page`.
     Returns {"labels": [...], "count": 31, "capped": False, "term": "Spring 2027 - ...", "api": [...]}.
-    labels is empty when the column couldn't be found."""
+    labels is empty when the column couldn't be found. stop: a threading.Event that ends it early."""
     api = []
 
     def on_response(r):
@@ -131,7 +131,7 @@ def read_todo(page, progress=print, reload: bool = True, timeout_s: int = 45) ->
             page.goto(f"{BASE_URL}/en-US/dashboard", wait_until="domcontentloaded")
         res = {"found": False}
         deadline = time.time() + timeout_s
-        while time.time() < deadline:
+        while time.time() < deadline and not (stop and stop.is_set()):
             res = page.evaluate(SCRAPE_JS, {})
             if res.get("found"):
                 break
@@ -147,6 +147,8 @@ def read_todo(page, progress=print, reload: bool = True, timeout_s: int = 45) ->
         page.evaluate(SCRAPE_JS, {"top": True})
         labels, still = [], 0
         for _ in range(200):
+            if stop and stop.is_set():
+                break
             time.sleep(0.5)
             res = page.evaluate(SCRAPE_JS, {"scroll": True})
             new = [x for x in parse_cards(" ".join(res.get("labels") or [])) if x not in labels]
