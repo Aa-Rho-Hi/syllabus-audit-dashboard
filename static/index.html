@@ -122,6 +122,9 @@ mark.warn{background:var(--warn-bg);box-shadow:inset 0 -2px 0 var(--warn)}
 .stat.s-issues b{color:var(--bad)} .stat.s-missing b{color:var(--warn)} .stat.s-clean b{color:var(--good)}
 .progress{height:6px;background:#ece6df;border-radius:99px;overflow:hidden;margin:14px 0 6px}
 .progress i{display:block;height:100%;background:var(--brand);transition:width .3s}
+.sel{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;font:inherit}
+.sslog{max-height:160px;overflow:auto;background:#faf8f6;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:12px/1.5 ui-monospace,Menlo,monospace;color:#4a4540;white-space:pre-wrap;margin-top:8px}
+a.btn{text-decoration:none;display:inline-block}
 .course{border:1px solid var(--line);border-radius:8px;margin-bottom:6px;background:#fff}
 .course summary{padding:10px 13px;cursor:pointer;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;list-style:none}
 .course summary::-webkit-details-marker{display:none}
@@ -188,6 +191,8 @@ dialog::backdrop{background:rgba(20,10,10,.35)}
       <button type="button" class="gbtn hidden" id="signin"><svg viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.6 5.4 2.6 13.2l7.9 6.2C12.4 13.7 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.4c-.5 2.9-2.2 5.3-4.6 6.9l7.4 5.8c4.3-4 6.9-9.9 6.9-17.2z"/><path fill="#FBBC05" d="M10.5 28.6c-.5-1.4-.8-3-.8-4.6s.3-3.2.8-4.6l-7.9-6.2C1 16.5 0 20.1 0 24s1 7.5 2.6 10.8l7.9-6.2z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.4-5.8c-2.1 1.4-4.8 2.3-8.5 2.3-6.3 0-11.6-4.2-13.5-10l-7.9 6.2C6.6 42.6 14.6 48 24 48z"/></svg>Sign in with Google</button>
       <button type="button" class="link small" id="use-samples">or try the sample syllabi</button>
     </div>
+    <div class="note info hidden" id="ss-entry" style="margin-top:16px"><b>Reviewing the Simple Syllabus queue?</b>
+      You don't need a Drive folder for that. <button type="button" class="link" id="use-ss">Go to Simple Syllabus</button></div>
     <div id="folder-msg" class="muted"></div>
   </div>
 
@@ -201,6 +206,7 @@ dialog::backdrop{background:rgba(20,10,10,.35)}
     <nav class="tabs">
       <button type="button" class="on" data-tab="check">Check a course</button>
       <button type="button" data-tab="audit">Reviewer: review all courses</button>
+      <button type="button" data-tab="ss" class="hidden" id="ss-tab">Simple Syllabus</button>
     </nav>
 
     <!-- TAB 1: check a course -->
@@ -245,6 +251,34 @@ dialog::backdrop{background:rgba(20,10,10,.35)}
           <button class="ghost hidden" id="audit-csv" type="button">Download Excel for review</button>
         </div>
         <div id="audit-out"></div>
+      </div>
+    </section>
+
+    <!-- TAB 3: Simple Syllabus queue (only when the app runs on this computer) -->
+    <section id="tab-ss" class="hidden">
+      <div class="card">
+        <h2 style="margin-bottom:6px">Download and review from Simple Syllabus</h2>
+        <p class="muted small" style="margin:0 0 14px">Pulls every syllabus that matches from Simple Syllabus, saves a PDF of each on this computer, and checks the learning objectives. A browser window opens for your TAMU login the first time; the app never sees your password.</p>
+        <form id="ss-form" class="row" autocomplete="off" style="align-items:flex-end">
+          <div style="width:100px"><label for="ss-subject">Subject</label><input id="ss-subject" type="text" value="ECEN"></div>
+          <div style="width:170px"><label for="ss-status">Which syllabi</label>
+            <select id="ss-status" class="sel">
+              <option value="mine">My To Do column</option>
+              <option value="awaiting_approval">Awaiting approval</option>
+              <option value="completed">Completed</option>
+              <option value="in_progress">In progress</option>
+              <option value="all">All</option>
+            </select></div>
+          <div style="width:150px"><label for="ss-term">Term <span class="muted">(optional)</span></label><input id="ss-term" type="text" placeholder="Spring 2027"></div>
+          <div class="grow"><label for="ss-courses">Courses <span class="muted">(optional)</span></label><input id="ss-courses" type="text" placeholder="314 403"></div>
+          <button class="btn" id="ss-run">Download &amp; audit</button>
+        </form>
+        <div id="ss-progress"></div>
+        <div class="row hidden" id="ss-actions" style="margin-top:12px">
+          <a class="btn" id="ss-excel" href="#">Download Excel</a>
+          <button class="ghost" id="ss-folder" type="button">Open folder with PDFs</button>
+        </div>
+        <div id="ss-out"></div>
       </div>
     </section>
   </div>
@@ -610,6 +644,7 @@ document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => {
   document.querySelectorAll(".tabs button").forEach(x => x.classList.toggle("on", x === b));
   $("#tab-check").classList.toggle("hidden", b.dataset.tab !== "check");
   $("#tab-audit").classList.toggle("hidden", b.dataset.tab !== "audit");
+  $("#tab-ss").classList.toggle("hidden", b.dataset.tab !== "ss");
 });
 
 /* =========== folder + Google sign-in =========== */
@@ -635,6 +670,7 @@ function showLibraryError(msg){
 }
 function showApp(name, files, access){
   folderName = name;
+  document.querySelectorAll('.tabs button[data-tab=check], .tabs button[data-tab=audit]').forEach(b => b.classList.remove("hidden"));
   $(".drivebar").classList.toggle("hidden", !!CFG.fixed_folder);   // department folder: nothing to show faculty
   $("#drive-sub").style.color = "";
   $("#setup").classList.add("hidden"); $("#app").classList.remove("hidden");
@@ -655,6 +691,11 @@ $("#signout").onclick = () => {
   showSetup("Signed out.");
 };
 $("#use-samples").onclick = () => { $("#folder").value = ""; connectFolder(); };
+$("#use-ss").onclick = () => {
+  $("#setup").classList.add("hidden"); $("#app").classList.remove("hidden"); $(".drivebar").classList.add("hidden");
+  document.querySelectorAll('.tabs button[data-tab=check], .tabs button[data-tab=audit]').forEach(b => b.classList.add("hidden"));
+  $("#ss-tab").click();
+};
 $("#folder-form").addEventListener("submit", e => { e.preventDefault(); connectFolder(); });
 
 function setupGoogle(){
@@ -700,7 +741,8 @@ async function connectFolder(){
 }
 
 /* =========== whole-folder audit (one streaming request, nothing kept on the server) =========== */
-let auditData = null, auditFilter = "all", auditOpen = new Set(), auditAbort = null, auditPaint = 0;
+let auditData = null, auditAbort = null, auditPaint = 0;
+const auditState = {filter:"all", open:new Set()};
 const GROUP = r => r.status === "clean" ? "clean" : (r.status === "no_objectives" || r.status === "unreadable") ? "missing" : "issues";
 function resetAudit(){
   if (auditAbort) auditAbort.abort();
@@ -757,8 +799,9 @@ $("#run-audit").onclick = async () => {
     $("#audit-out").insertAdjacentHTML("afterbegin", `<div class="note bad"><b>The review stopped before it finished.</b>The connection dropped. Click Run again.</div>`);
   }finally{ if (auditAbort === ctrl) resetBtn(); }
 };
-function renderAudit(){
-  const d = auditData, res = d.results;
+function renderAudit(){ renderAuditInto("#audit-out", auditData, auditState); }
+function renderAuditInto(sel, d, st){
+  const res = d.results;
   const n = {issues:0, missing:0, clean:0}; res.forEach(r => n[GROUP(r)]++);
   let h = "";
   if (!d.finished){
@@ -766,14 +809,14 @@ function renderAudit(){
     h += `<div class="progress"><i style="width:${pct}%"></i></div><p class="muted small" style="margin:0">Checked ${d.done} of ${d.total} files…</p>`;
   }
   h += `<div class="stats">
-    <button class="stat s-issues ${auditFilter==="issues"?"on":""}" data-f="issues"><b>${n.issues}</b><span>Need fixes</span></button>
-    <button class="stat s-missing ${auditFilter==="missing"?"on":""}" data-f="missing"><b>${n.missing}</b><span>No objectives found</span></button>
-    <button class="stat s-clean ${auditFilter==="clean"?"on":""}" data-f="clean"><b>${n.clean}</b><span>All good</span></button>
-    <button class="stat s-overlap ${auditFilter==="overlap"?"on":""}" data-f="overlap"><b>${d.finished ? (d.summary.overlap_courses || 0) : "…"}</b><span>Overlap other courses</span></button></div>`;
+    <button class="stat s-issues ${st.filter==="issues"?"on":""}" data-f="issues"><b>${n.issues}</b><span>Need fixes</span></button>
+    <button class="stat s-missing ${st.filter==="missing"?"on":""}" data-f="missing"><b>${n.missing}</b><span>No objectives found</span></button>
+    <button class="stat s-clean ${st.filter==="clean"?"on":""}" data-f="clean"><b>${n.clean}</b><span>All good</span></button>
+    <button class="stat s-overlap ${st.filter==="overlap"?"on":""}" data-f="overlap"><b>${d.finished ? (d.summary.overlap_courses || 0) : "…"}</b><span>Overlap other courses</span></button></div>`;
   if (d.summary.top_terms.length) h += `<p class="small muted" style="margin:0 0 12px">Most common problem words: ${d.summary.top_terms.slice(0,5).map(([t,c]) => `<b style="color:var(--bad)">${esc(t)}</b> (${c})`).join(", ")}</p>`;
   const order = {issues:0, missing:1, clean:2};
   const hasDup = r => r.objectives.some(o => o.overlaps && o.overlaps.length);
-  const rows = res.filter(r => auditFilter === "all" || (auditFilter === "overlap" ? hasDup(r) : GROUP(r) === auditFilter))
+  const rows = res.filter(r => st.filter === "all" || (st.filter === "overlap" ? hasDup(r) : GROUP(r) === st.filter))
                   .sort((a,b) => order[GROUP(a)] - order[GROUP(b)] || a.course.localeCompare(b.course));
   h += rows.map(r => {
     const k = r.file.id || r.file.name, bad = r.objectives.filter(o => o.status !== "ok" || (o.overlaps && o.overlaps.length));
@@ -783,19 +826,22 @@ function renderAudit(){
           ${o.status !== "ok" && o.suggestion ? `<div class="sug">&rarr; ${esc(o.suggestion)}</div>` : ""}</div>`).join("") || `<p class="muted small">No problems.</p>`
         : `<p class="muted small">${esc(r.summary)}</p>`;
     const link = r.file.link ? `<a href="${esc(r.file.link)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">open</a>` : "";
-    return `<details class="course" data-k="${esc(k)}" ${auditOpen.has(k) ? "open" : ""}><summary><i class="dot ${GROUP(r)}"></i><span class="name">${esc(r.course)}</span><span class="sum">${esc(r.summary)}${hasDup(r) ? ` · <span style="color:#1155cc">overlaps another course</span>` : ""} ${link}</span></summary><div class="body">${body}</div></details>`;
+    return `<details class="course" data-k="${esc(k)}" ${st.open.has(k) ? "open" : ""}><summary><i class="dot ${GROUP(r)}"></i><span class="name">${esc(r.course)}</span><span class="sum">${esc(r.summary)}${hasDup(r) ? ` · <span style="color:#1155cc">overlaps another course</span>` : ""} ${link}</span></summary><div class="body">${body}</div></details>`;
   }).join("");
-  if (auditFilter !== "all") h += `<p class="small" style="margin:8px 0 0"><button class="link" data-f="all">Show all courses</button></p>`;
-  $("#audit-out").innerHTML = h;
+  if (st.filter !== "all") h += `<p class="small" style="margin:8px 0 0"><button class="link" data-f="all">Show all courses</button></p>`;
+  $(sel).innerHTML = h;
 }
-$("#audit-out").addEventListener("click", e => {
-  const t = e.target.closest("[data-f]"); if (!t) return;
-  auditFilter = auditFilter === t.dataset.f ? "all" : t.dataset.f; renderAudit();
-});
-$("#audit-out").addEventListener("toggle", e => {
-  const k = e.target.dataset && e.target.dataset.k; if (!k) return;
-  e.target.open ? auditOpen.add(k) : auditOpen.delete(k);
-}, true);
+function bindAuditView(sel, st, rerender){
+  $(sel).addEventListener("click", e => {
+    const t = e.target.closest("[data-f]"); if (!t) return;
+    st.filter = st.filter === t.dataset.f ? "all" : t.dataset.f; rerender();
+  });
+  $(sel).addEventListener("toggle", e => {
+    const k = e.target.dataset && e.target.dataset.k; if (!k) return;
+    e.target.open ? st.open.add(k) : st.open.delete(k);
+  }, true);
+}
+bindAuditView("#audit-out", auditState, renderAudit);
 $("#audit-csv").onclick = async () => {
   if (!auditData || !auditData.finished) return;
   const b = $("#audit-csv"), label = b.textContent; b.disabled = true; b.innerHTML = '<span class="spin"></span>Building';
@@ -810,6 +856,60 @@ $("#audit-csv").onclick = async () => {
   finally{ b.disabled = false; b.textContent = label; }
 };
 function alertBox(msg){ $("#audit-out").insertAdjacentHTML("afterbegin", `<div class="note bad">${esc(msg)}</div>`); }
+
+/* =========== Simple Syllabus tab (local only) =========== */
+let ssTimer = null, ssData = null;
+const ssState = {filter:"all", open:new Set()};
+bindAuditView("#ss-out", ssState, () => ssData && renderAuditInto("#ss-out", ssData, ssState));
+const SS_STAGE = {starting:"Starting…", login:"Waiting for you to log in to Simple Syllabus in the browser window that opened…",
+                  downloading:"Downloading syllabi and making PDFs…", auditing:"Checking learning objectives…"};
+function ssRender(s){
+  const busy = ["starting","login","downloading","auditing"].includes(s.state);
+  const btn = $("#ss-run"); btn.disabled = busy;
+  btn.innerHTML = busy ? '<span class="spin"></span>Working' : (s.state === "done" ? "Run again" : "Download &amp; audit");
+  let h = "";
+  if (busy){
+    const pct = s.total ? Math.round(100 * s.done / s.total) : (s.state === "auditing" ? 100 : 4);
+    h += `<div class="note ${s.state === "login" ? "warn" : "info"}"><b>${esc(SS_STAGE[s.state])}</b>${s.total ? `${s.done} of ${s.total} syllabi` : ""}</div>
+          <div class="progress"><i style="width:${pct}%"></i></div>`;
+  } else if (s.state === "error"){
+    h += `<div class="note bad"><b>It stopped before finishing.</b>${esc(s.message)}</div>`;
+  } else if (s.state === "done" && s.message){
+    h += `<p class="muted small" style="margin:12px 0 0">${esc(s.message)}</p>`;
+  }
+  if (s.log && s.log.length && (busy || s.state === "error"))
+    h += `<div class="sslog">${esc(s.log.slice(-12).join("\n"))}</div>`;
+  $("#ss-progress").innerHTML = h;
+  $("#ss-actions").classList.toggle("hidden", !(s.state === "done" && s.excel));
+  if (s.excel) $("#ss-excel").href = s.excel;
+  if (s.state === "done" && s.results){
+    ssData = {finished:true, results:s.results, overlaps:s.overlaps || [], done:s.results.length, total:s.results.length,
+              summary:{top_terms:partialTerms(s.results),
+                       overlap_courses:s.results.filter(r => r.objectives.some(o => o.overlaps && o.overlaps.length)).length}};
+    renderAuditInto("#ss-out", ssData, ssState);
+  } else if (busy) $("#ss-out").innerHTML = "";
+  return busy;
+}
+async function ssPoll(){
+  clearTimeout(ssTimer);
+  try{
+    const s = await (await fetch("/api/ss/status")).json();
+    if (ssRender(s)) ssTimer = setTimeout(ssPoll, 1000);
+  }catch(e){ ssTimer = setTimeout(ssPoll, 3000); }
+}
+$("#ss-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const body = {subject:$("#ss-subject").value, status:$("#ss-status").value, term:$("#ss-term").value,
+                courses:$("#ss-courses").value, use_llm:true};
+  const r = await fetch("/api/ss/run", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+  if (!r.ok){
+    const d = await r.json().catch(() => ({}));
+    $("#ss-progress").innerHTML = `<div class="note bad"><b>Couldn't start.</b>${esc(d.detail || "Try again.")}</div>`;
+    return;
+  }
+  ssState.filter = "all"; ssState.open.clear(); ssData = null; ssPoll();
+});
+$("#ss-folder").onclick = () => fetch("/api/ss/open-folder", {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"});
 
 /* =========== start =========== */
 async function init(){
@@ -831,6 +931,7 @@ async function init(){
   $("#who-bar").classList.remove("hidden");
   $("#who-role").textContent = coordinator ? "Reviewer" : "Professor";
   if (coordinator) document.querySelector('.tabs button[data-tab=audit]').click();
+  if (coordinator && CFG.simple_syllabus){ $("#ss-tab").classList.remove("hidden"); $("#ss-entry").classList.remove("hidden"); ssPoll(); }
   else $(".tabs").classList.add("hidden");       // professors only see the course check
   if (CFG.fixed_folder){
     // department folder: show the page right away; the folder check runs quietly behind it

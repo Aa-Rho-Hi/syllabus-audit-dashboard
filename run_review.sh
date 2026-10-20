@@ -4,5 +4,5 @@ set -e
 cd "$(dirname "$0")"
 [ -x .venv/bin/python ] || python3 -m venv .venv
 .venv/bin/python -m pip install -q --disable-pip-version-check -r reviewer/requirements.txt
-.venv/bin/python -m reviewer.pull "$@"
+.venv/bin/python -m reviewer.pull --mine "$@"
 .venv/bin/python -m reviewer.audit --open

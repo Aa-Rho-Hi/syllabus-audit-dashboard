@@ -16,7 +16,7 @@ import time                                     # noqa: E402
 from datetime import datetime                   # noqa: E402
 from collections import Counter                 # noqa: E402
 
-from fastapi import FastAPI, Header, HTTPException  # noqa: E402
+from fastapi import FastAPI, Header, HTTPException, Request  # noqa: E402
 from fastapi.responses import FileResponse, Response, StreamingResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles     # noqa: E402
 from pydantic import BaseModel                  # noqa: E402
@@ -28,6 +28,7 @@ from .sources import AccessError, Scanner, TextCache, fixed_folder, resolve_sour
 from .overlap import find_overlaps                  # noqa: E402
 from .report import build_review_xlsx               # noqa: E402
 from .audit_core import check_items                 # noqa: E402
+from . import simplesyllabus_job as ss              # noqa: E402
 from .verbs import (ALLOWED, AVOID_PHRASES, AVOID_VERBS, BLOOMS,  # noqa: E402
                     SUGGESTIONS, avoid_terms, clean_objective, final_status, regex_check,
                     split_objectives)
@@ -95,6 +96,7 @@ def config():
         "default_folder": folder,
         "llm_configured": llm.configured(),
         "llm_model": llm.MODEL if llm.configured() else None,
+        "simple_syllabus": ss.available()[0],
     }
 
 
@@ -337,6 +339,67 @@ def excel(body: ExcelIn):
     fname = f"syllabus-review-{name}-{datetime.now().strftime('%Y-%m-%d')}.xlsx"
     return Response(data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+
+# ---------------- Simple Syllabus (only on the reviewer's own computer) ----------------
+def _local_only(request: Request):
+    ok, why = ss.available()
+    if not ok:
+        raise HTTPException(403, why)
+    if (request.client.host if request.client else "") not in ("127.0.0.1", "::1", "localhost", "testclient"):
+        raise HTTPException(403, "Simple Syllabus downloads only work from this computer's own browser.")
+    # DNS rebinding: an outside site can point its own name at 127.0.0.1, so check the name too.
+    if request.url.hostname not in ("127.0.0.1", "::1", "localhost", "testserver"):
+        raise HTTPException(403, "Open the app at http://localhost:8000 to use Simple Syllabus downloads.")
+    # Other sites can send body-less or form POSTs without asking the browser first. JSON ones they can't.
+    if request.method == "POST" and not request.headers.get("content-type", "").startswith("application/json"):
+        raise HTTPException(415, "Send JSON.")
+
+
+class SSRunIn(BaseModel):
+    subject: str = "ECEN"
+    term: str = ""
+    status: str = "awaiting_approval"
+    courses: str = ""
+    use_llm: bool = True
+
+
+@app.post("/api/ss/run")
+def ss_run(body: SSRunIn, request: Request):
+    _local_only(request)
+    subject = re.sub(r"[^A-Za-z]", "", body.subject).upper()[:6] or "ECEN"
+    term = re.sub(r"[^A-Za-z0-9 -]", "", body.term)[:40].strip()
+    status = body.status if body.status in ss.STATUSES else "awaiting_approval"
+    courses = re.findall(r"\d{3}", body.courses)[:50]
+    if not ss.JOB.start(subject, term, status, courses, body.use_llm and llm.configured()):
+        raise HTTPException(409, "A download is already running.")
+    return {"ok": True}
+
+
+@app.get("/api/ss/status")
+def ss_status(request: Request):
+    _local_only(request)
+    return ss.JOB.snapshot()
+
+
+@app.get("/api/ss/file")
+def ss_file(path: str, request: Request):
+    _local_only(request)
+    p = ss.safe_file(path)
+    if not p:
+        raise HTTPException(404, "Not found")
+    media = "application/pdf" if p.suffix.lower() == ".pdf" else \
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    return FileResponse(p, media_type=media, filename=p.name,
+                        content_disposition_type="inline" if p.suffix.lower() == ".pdf" else "attachment")
+
+
+@app.post("/api/ss/open-folder")
+def ss_open_folder(request: Request):
+    _local_only(request)
+    snap = ss.JOB.snapshot()
+    return {"ok": bool(snap["folder"]) and ss.open_folder(snap["folder"])}
 
 
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")

@@ -9,11 +9,11 @@ Checks TAMU course syllabi for learning objectives that use banned Bloom's verbs
 
 ```bash
 pip install -r reviewer/requirements.txt      # web app only: requirements.txt
-python -m pytest -q                            # 111 tests, ~3s. Run before every commit.
+python -m pytest -q                            # 139 tests, ~16s. Run before every commit.
 python -m reviewer.pull --term "Spring 2027"   # opens a browser for TAMU login, downloads to syllabi/<date>/
 python -m reviewer.audit --no-ai --open        # audits the newest syllabi/<date>/ folder
 python -m reviewer.pull --logout               # forget the saved login
-python -m uvicorn app.main:app --reload --port 8000   # web app
+python -m uvicorn app.main:app --reload --port 8000   # web app; reviewer page has the Simple Syllabus tab
 ```
 
 ## Simple Syllabus API (tamu.simplesyllabus.com)
@@ -31,11 +31,14 @@ The documented API (`docs: Simple Syllabus REST API Guide`) is read-only and has
 - **Sections vs. courses:** `entity_type: section` are the real syllabi; `course` entries are master templates (skipped by default).
 - **Placeholders:** template blocks like `<span data-block-name="section_ca_5">` hold values from `doc_data.properties` (`ca_5` meeting times, `ca_6` room, `course_number`...). Empty ones are dropped.
 - Responses include **account IDs and `ca_7` (a UIN)**. Never save them. `slim()` and the heading parser keep only what the audit needs, plus instructor name and email.
-- The `doc-public` list is all ECEN syllabi with that status, which can be more than one approver's queue (47 vs. Aydin's 31 on 2026-10-18).
+- The `doc-public` list is all ECEN syllabi with that status, which can be more than one approver's queue (47 vs. Aydin's 31 on 2026-10-18). It can also miss queue items: his To Do had ECEN 303 503 (56552) on 2026-10-16, which wasn't `awaiting_approval` publicly.
+- **His queue (`--mine`, default in `run_review.bat/.sh` and the web tab):** `reviewer/dashboard.py` reads the To Do column off the dashboard page (found by its heading text, not class names; lazy lists get scrolled), takes the `SUBJ NUM SEC (CRN)` labels, and matches them by CRN to `doc-public` with `status=all`. Can't find the column → says so and falls back to `awaiting_approval`. `--crns` is the manual fallback. Dashboard (2026-10-16): Approvals toggle, Term dropdown, View: Columns, columns Not Ready / To Do / Awaiting Approval / Completed, counts capped at 99+. `dashboard-check.json` (no IDs) records what it saw plus the shape of any `dashboard-doc-search` responses, for working out that endpoint later.
 
 ## How the reviewer tool fits together
 
 `reviewer/pull.py` → login (`login()`, persistent browser profile in the user's private app-data folder) → `list_docs()` → `fetch_doc()` per syllabus (full-page-get, falls back to heading-component for drafts) → `save_doc()` writes `syllabi/<date>/<term>/_data/<stem>.json` + `<stem>.pdf` → `reviewer/audit.py` reads the JSON, `find_outcomes()` pulls the learning objectives, `app/audit_core.check_items(presplit=True)` checks them, `app/report.build_review_xlsx()` writes the Excel.
+
+**In the web app:** when it runs on your own computer, the reviewer page has a **Simple Syllabus** tab (`app/simplesyllabus_job.py`, `/api/ss/*`). It runs the same `run_pull()` + `run_audit()` as a background job, so the login window opens on that computer. It's switched off on Cloud Run (`K_SERVICE`) and for requests that don't come from the same machine or aren't addressed to `localhost`/`127.0.0.1` (DNS rebinding). POSTs must be JSON so other sites can't send them. And `/api/ss/file` only serves PDF/XLSX files inside `syllabi/`. Tests: `tests/test_ss_web.py`.
 
 `reviewer/export_snippet.js` + `reviewer/import_export.py` do the same thing when Python can't reach Simple Syllabus but a logged-in browser can (paste the snippet in DevTools, then import the JSON it saves).
 
@@ -55,7 +58,7 @@ The documented API (`docs: Simple Syllabus REST API Guide`) is read-only and has
 
 ## Known gaps / ideas
 
-- Only works for the ECEN subject by default (`--subject` to change). Not filtered to one approver's own queue: the dashboard uses `/api2/dashboard-doc-search` (params unknown) for that.
+- Only works for the ECEN subject by default (`--subject` to change). `--mine` scrapes the dashboard page because `/api2/dashboard-doc-search`'s params are unknown; untested against the live page (only against `tests/test_dashboard.py`'s copy of it).
 - No scheduled runs yet (Windows Task Scheduler could run `run_review.bat` with `NOPAUSE=1`).
 - Overlap check is O(n²) in objectives; fine for hundreds, slow for tens of thousands.
 - `doc-full-page-get`'s `is_missing_required_content` is always true for drafts, so it's ignored for them.

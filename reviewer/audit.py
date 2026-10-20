@@ -67,32 +67,8 @@ def main(argv=None):
     args = ap.parse_args(argv)
 
     folder = Path(args.folder) if args.folder else latest_folder()
-    files = sorted(folder.glob("*/_data/*.json"))
-    if not files:
-        raise SystemExit(f"No downloaded syllabi in {folder}")
     use_llm = not args.no_ai and llm.configured()
-    print(f"Auditing {len(files)} syllabi in {folder} (AI {'on' if use_llm else 'off'})...", flush=True)
-
-    results = []
-    for p in files:
-        doc = json.loads(p.read_text(encoding="utf-8"))
-        try:
-            r = audit_doc(doc, p, folder, use_llm)
-        except Exception as e:  # one odd syllabus never stops the run
-            r = {"file": {"name": p.stem, "link": doc_url(doc)}, "course": course_label(doc),
-                 "status": "unreadable", "objectives": [], "summary": f"Error: {e}"}
-        results.append(r)
-        print(f"  {r['course']}: {r['summary']}", flush=True)
-
-    # sections of the same course share a syllabus, so only flag overlaps between different courses
-    overlaps = find_overlaps(results, group=lambda r: " ".join(r["course"].split()[:2]))
-    data = build_review_xlsx({"folder_name": f"Simple Syllabus download {folder.name}",
-                              "results": results, "overlaps": overlaps})
-    out = folder / f"syllabus-review-{datetime.now().strftime('%Y-%m-%d_%H%M')}.xlsx"
-    out.write_bytes(data)
-    (folder / "audit-results.json").write_text(json.dumps({"results": results, "overlaps": overlaps}, indent=1),
-                                               encoding="utf-8")
-
+    results, overlaps, out = run_audit(folder, use_llm)
     need = sum(1 for r in results if r["status"] != "clean")
     print(f"\n{len(results) - need} look good, {need} need a look. Report: {out}")
     if args.open:
@@ -104,6 +80,34 @@ def main(argv=None):
         except Exception:
             pass
     return 0
+
+
+
+def run_audit(folder: Path, use_llm: bool, progress=print):
+    """Audit a download folder. Returns (results, overlaps, path of the Excel file)."""
+    files = sorted(folder.glob("*/_data/*.json"))
+    if not files:
+        raise SystemExit(f"No downloaded syllabi in {folder}")
+    progress(f"Auditing {len(files)} syllabi in {folder} (AI {'on' if use_llm else 'off'})...")
+    results = []
+    for p in files:
+        try:
+            doc = json.loads(p.read_text(encoding="utf-8"))
+            r = audit_doc(doc, p, folder, use_llm)
+        except Exception as e:  # one odd syllabus never stops the run
+            r = {"file": {"name": p.stem, "link": None}, "course": p.stem,
+                 "status": "unreadable", "objectives": [], "summary": f"Error: {e}"}
+        results.append(r)
+        progress(f"  {r['course']}: {r['summary']}")
+    # sections of the same course share a syllabus, so only flag overlaps between different courses
+    overlaps = find_overlaps(results, group=lambda r: " ".join(r["course"].split()[:2]))
+    data = build_review_xlsx({"folder_name": f"Simple Syllabus download {folder.name}",
+                              "results": results, "overlaps": overlaps})
+    out = folder / f"syllabus-review-{datetime.now().strftime('%Y-%m-%d_%H%M')}.xlsx"
+    out.write_bytes(data)
+    (folder / "audit-results.json").write_text(json.dumps({"results": results, "overlaps": overlaps}, indent=1),
+                                               encoding="utf-8")
+    return results, overlaps, out
 
 
 if __name__ == "__main__":

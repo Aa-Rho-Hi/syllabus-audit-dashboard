@@ -4,6 +4,8 @@
     python -m reviewer.pull --term "Spring 2027"     # one term
     python -m reviewer.pull --status completed       # finished ones instead
     python -m reviewer.pull --courses 314 403        # only these course numbers
+    python -m reviewer.pull --mine                   # only what's in your dashboard's To Do column
+    python -m reviewer.pull --crns 56552 38440       # only these sections (the number in brackets)
 
 A browser window opens on Simple Syllabus. Log in with your TAMU NetID the normal way; the
 script waits, then closes the window and does the rest in the background. Your password never
@@ -21,8 +23,10 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from urllib.parse import urlencode
 
+from . import dashboard
 from .syllabus_doc import (BASE_URL, components_from_headings, course_label, doc_url, file_stem, has_outcomes_section,
                            objectives, printable_html, safe_folder, slim)
 
@@ -107,26 +111,57 @@ def logged_in(request) -> str | None:
     return None
 
 
-def login(pw) -> dict:
-    """Open a visible browser, wait for the reviewer to finish TAMU login, hand back the session."""
+class PageRequest:
+    """Makes API calls from inside the logged-in Simple Syllabus tab, exactly like the site's own
+    page does (same browser, cookies and headers). Calls from a separate headless browser get
+    blocked with 403 by the site's bot protection."""
+
+    def __init__(self, page):
+        self.page = page
+
+    def get(self, url: str, timeout: int = 60_000):
+        if not self.page.url.startswith(BASE_URL):
+            self.page.goto(f"{BASE_URL}/en-US/dashboard", wait_until="domcontentloaded")
+        res = self.page.evaluate(
+            """async (url) => {
+                 const r = await fetch(url, {credentials: "include", headers: {"Accept": "application/json"}});
+                 return {status: r.status, text: await r.text()};
+               }""", url)
+        return _Resp(res.get("status", 0), res.get("text", ""))
+
+
+class _Resp:
+    def __init__(self, status: int, text: str):
+        self.status, self._text = status, text
+
+    def json(self):
+        return json.loads(self._text)
+
+
+def login(pw, progress=say):
+    """Open a visible browser and wait for the reviewer to finish the TAMU login.
+    Returns (context, PageRequest). The caller closes the context when the download is done."""
     ctx = launch(pw, headless=False, user_data_dir=str(prepare_profile()), viewport={"width": 1200, "height": 850})
     try:
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
         page.goto(f"{BASE_URL}/en-US/dashboard", wait_until="domcontentloaded")
         who = logged_in(ctx.request)
         if not who:
-            say("\n>>> Log in to Simple Syllabus in the browser window that just opened (TAMU NetID + Duo).")
-            say("    This window waits for you and closes by itself once you're in.\n")
+            progress("Log in to Simple Syllabus in the browser window that just opened (TAMU NetID + Duo). "
+                     "Leave the window open; it closes by itself when the download is done.")
         deadline = time.time() + LOGIN_TIMEOUT_S
         while not who:
             if time.time() > deadline:
                 raise SystemExit("Timed out waiting for login. Run it again when you're ready.")
             time.sleep(2)
             who = logged_in(ctx.request)
-        say(f"Logged in as {who}.")
-        return ctx.storage_state()
-    finally:
+        progress(f"Logged in as {who}.")
+        if not page.url.startswith(BASE_URL):
+            page.goto(f"{BASE_URL}/en-US/dashboard", wait_until="domcontentloaded")
+        return ctx, PageRequest(page)
+    except BaseException:
         ctx.close()
+        raise
 
 
 SAFE_IMAGE_PREFIX = f"{BASE_URL}/ui/account-image/"
@@ -242,6 +277,47 @@ def list_docs(request, args) -> list[dict]:
     return sorted(keep, key=lambda d: (d.get("term_name") or "", d.get("title") or ""))
 
 
+def my_docs(request, args, out: Path, progress=say) -> list[dict]:
+    """--mine / --crns: only the reviewer's own queue. Reads the To Do column off their dashboard
+    (or takes the CRNs they typed), then finds those sections in the public list, whatever their status."""
+    crns = list(getattr(args, "crns", None) or [])
+    check = {"mode": "crns" if crns else "dashboard"}
+    if crns:
+        wanted, term = crns, args.term
+    else:
+        todo = dashboard.read_todo(request.page, progress)
+        check.update({k: todo.get(k) for k in ("count", "capped", "term", "problem", "api")})
+        wanted, term = todo["labels"], todo.get("term") or ""
+        if not wanted:
+            (out / "dashboard-check.json").write_text(json.dumps(check, indent=1), encoding="utf-8")
+            if not todo.get("problem"):
+                progress("Your To Do column is empty, so there's nothing to download.")
+                return []
+            progress(f"Couldn't read your To Do column ({todo['problem']}). "
+                     f"Falling back to every {args.subject} syllabus awaiting approval.")
+            return list_docs(request, args)
+        progress(f"Your To Do column{' (' + term + ')' if term else ''}: {len(wanted)} syllabi"
+                 + (f" (the page says {todo['count']})" if todo.get("count") not in (None, len(wanted)) else "") + ".")
+    subjects = sorted({k[0] for w in wanted if (k := dashboard.card_key(w))} | {args.subject})
+    everything = []
+    for s in subjects:
+        everything += list_docs(request, SimpleNamespace(subject=s, status="all", term="", courses=[],
+                                                         include_masters=False))
+    if crns:
+        docs, missing = dashboard.match_crns(wanted, everything, term)
+    else:
+        docs, missing = dashboard.match_docs(wanted, everything, term)
+        if args.term:
+            docs = [d for d in docs if args.term.lower() in (d.get("term_name") or "").lower()]
+    if args.courses:
+        docs = [d for d in docs if str(d.get("course_number")) in args.courses]
+    check.update({"wanted": wanted, "matched": len(docs), "missing": missing})
+    (out / "dashboard-check.json").write_text(json.dumps(check, indent=1), encoding="utf-8")
+    if missing:
+        progress(f"Not found in Simple Syllabus's list ({len(missing)}): {', '.join(missing[:20])}")
+    return sorted(docs, key=lambda d: (d.get("term_name") or "", d.get("title") or ""))
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Download syllabi from Simple Syllabus for review.")
     ap.add_argument("--subject", default="ECEN", help="subject code (default ECEN)")
@@ -250,6 +326,10 @@ def main(argv=None):
                     choices=["awaiting_approval", "in_progress", "completed", "not_started", "all"],
                     help="which syllabi to pull (default awaiting_approval = your To Do queue)")
     ap.add_argument("--courses", nargs="*", default=[], help="only these course numbers, e.g. 314 403")
+    ap.add_argument("--mine", action="store_true", help="only the syllabi in your dashboard's To Do column")
+    ap.add_argument("--everyone", dest="mine", action="store_false",
+                    help="every syllabus with --status, not just your To Do column (undoes --mine)")
+    ap.add_argument("--crns", nargs="*", default=[], help="only these sections, by CRN (the number in brackets)")
     ap.add_argument("--include-masters", action="store_true", help="also pull course-level master docs")
     ap.add_argument("--out", default="", help="output folder (default syllabi/<today>)")
     ap.add_argument("--no-pdf", action="store_true", help="skip PDFs, only save data for the audit")
@@ -259,37 +339,8 @@ def main(argv=None):
         say("Saved login removed." if forget_login() else "No saved login to remove.")
         return 0
 
-    from playwright.sync_api import sync_playwright
-
     out = Path(args.out) if args.out else ROOT / "syllabi" / datetime.now().strftime("%Y-%m-%d")
-    out.mkdir(parents=True, exist_ok=True)
-
-    with sync_playwright() as pw:
-        state = login(pw)
-        browser = launch(pw, headless=True)
-        ctx = browser.new_context(storage_state=state)
-        try:
-            docs = list_docs(ctx.request, args)
-            say(f"Found {len(docs)} {args.subject} syllabi ({args.status.replace('_', ' ')}"
-                f"{', ' + args.term if args.term else ''}).")
-            if not docs:
-                return 0
-            page = render_page(browser)
-            manifest = []
-            for n, d in enumerate(docs, 1):
-                try:
-                    doc, status = fetch_doc(ctx.request, d)
-                    entry = save_doc(doc, status, out, page, args.no_pdf)
-                except Exception as e:   # one bad syllabus never stops the run
-                    entry = {"course": str(d.get("title") or d.get("code")), "code": d.get("code"), "pdf": None,
-                             "note": f"skipped: {type(e).__name__}: {str(e)[:80]}"}
-                say(f"  [{n}/{len(docs)}] {entry['course']}: {entry['note']}")
-                manifest.append(entry)
-                time.sleep(0.3)   # be gentle with their server
-            (out / "manifest.json").write_text(json.dumps(manifest, indent=1), encoding="utf-8")
-        finally:
-            browser.close()
-
+    manifest = run_pull(args, out)
     blind = sum(1 for m in manifest if m["note"].startswith(("no content", "HTTP")))
     say(f"\nSaved to {out}")
     if blind:
@@ -297,6 +348,43 @@ def main(argv=None):
             "Your account may not be allowed to see those drafts.")
     return 0
 
+
+def run_pull(args, out: Path, progress=say, on_total=None) -> list[dict]:
+    """The whole download. Used by the command line and by the web app's Simple Syllabus tab.
+    progress(msg) gets status lines; on_total(n) is called once the list is known."""
+    from playwright.sync_api import sync_playwright
+
+    out.mkdir(parents=True, exist_ok=True)
+    manifest = []
+    with sync_playwright() as pw:
+        session, request = login(pw, progress)
+        browser = launch(pw, headless=True)          # only for making PDFs; never talks to Simple Syllabus
+        try:
+            if getattr(args, "mine", False) or getattr(args, "crns", None):
+                docs = my_docs(request, args, out, progress)
+                progress(f"Found {len(docs)} syllabi to download.")
+            else:
+                docs = list_docs(request, args)
+                progress(f"Found {len(docs)} {args.subject} syllabi ({args.status.replace('_', ' ')}"
+                         f"{', ' + args.term if args.term else ''}).")
+            if on_total:
+                on_total(len(docs))
+            page = render_page(browser) if docs else None
+            for n, d in enumerate(docs, 1):
+                try:
+                    doc, status = fetch_doc(request, d)
+                    entry = save_doc(doc, status, out, page, args.no_pdf)
+                except Exception as e:   # one bad syllabus never stops the run
+                    entry = {"course": str(d.get("title") or d.get("code")), "code": d.get("code"), "pdf": None,
+                             "note": f"skipped: {type(e).__name__}: {str(e)[:80]}"}
+                progress(f"  [{n}/{len(docs)}] {entry['course']}: {entry['note']}")
+                manifest.append(entry)
+                time.sleep(0.3)   # be gentle with their server
+            (out / "manifest.json").write_text(json.dumps(manifest, indent=1), encoding="utf-8")
+        finally:
+            browser.close()
+            session.close()
+    return manifest
 
 if __name__ == "__main__":
     sys.exit(main())

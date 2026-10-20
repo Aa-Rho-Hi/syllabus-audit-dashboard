@@ -1,6 +1,7 @@
 @echo off
 REM Double-click: downloads your Simple Syllabus review queue, then audits it.
-REM Extra options go after the name, e.g.  run_review.bat --term "Spring 2027" --status completed
+REM Only pulls what is in your dashboard's To Do column. Extra options go after the name, e.g.
+REM   run_review.bat --term "Spring 2027"     or   run_review.bat --everyone   (every ECEN syllabus awaiting approval)
 cd /d "%~dp0"
 where py >nul 2>nul && (set PY=py -3) || (set PY=python)
 if not exist .venv\Scripts\python.exe (
@@ -8,7 +9,7 @@ if not exist .venv\Scripts\python.exe (
   %PY% -m venv .venv || goto nopython
 )
 .venv\Scripts\python.exe -m pip install -q --disable-pip-version-check -r reviewer\requirements.txt || goto fail
-.venv\Scripts\python.exe -m reviewer.pull %* || goto fail
+.venv\Scripts\python.exe -m reviewer.pull --mine %* || goto fail
 .venv\Scripts\python.exe -m reviewer.audit --open || goto fail
 echo.
 echo Done.

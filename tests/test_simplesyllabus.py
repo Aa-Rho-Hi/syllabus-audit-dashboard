@@ -182,3 +182,45 @@ def test_import_export_end_to_end(tmp_path):
     assert audit_main([str(out), "--no-ai"]) == 0
     res = json.loads((out / "audit-results.json").read_text())["results"]
     assert any(r["course"] == "ECEN 314 200" and len(r["objectives"]) == 2 for r in res)
+
+
+def test_api_calls_go_through_the_logged_in_page(monkeypatch):
+    """Simple Syllabus answered 403 to calls from a separate headless browser. PageRequest makes the
+    same calls from inside the visible, logged-in tab instead, like the site's own page."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    from playwright.sync_api import sync_playwright
+
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_GET(self):
+            if "HeadlessChrome" in (self.headers.get("User-Agent") or "") and self.path.startswith("/api2"):
+                self.send_response(403); self.end_headers(); self.wfile.write(b"{}"); return
+            body = (json.dumps({"sys": {"success": True}, "pagination": {"total": 1},
+                                "items": [{"code": "c1", "entity_type": "section", "status": "awaiting_approval",
+                                           "term_name": "Spring 2027", "course_number": "314", "title": "ECEN 314"}]})
+                    if self.path.startswith("/api2") else "<html>ok</html>").encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json" if self.path.startswith("/api2") else "text/html")
+            self.end_headers(); self.wfile.write(body)
+
+    srv = HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{srv.server_port}"
+    monkeypatch.setattr(pull, "BASE_URL", base)
+    args = SimpleNamespace(subject="ECEN", status="awaiting_approval", term="", courses=[], include_masters=False)
+    with sync_playwright() as pw:
+        b = pw.chromium.launch(headless=True)
+        # a headless browser's own API client gets blocked, like on the real site...
+        ctx = b.new_context()
+        assert ctx.request.get(base + "/api2/doc-public").status == 403
+        # ...but the same call from a page that looks like a normal browser works
+        ctx2 = b.new_context(user_agent="Mozilla/5.0 (Macintosh) Chrome/130.0 Safari/537.36")
+        page = ctx2.new_page()
+        page.goto(base + "/en-US/dashboard")
+        docs = pull.list_docs(pull.PageRequest(page), args)
+        b.close()
+    srv.shutdown()
+    assert [d["code"] for d in docs] == ["c1"]
