@@ -17,6 +17,8 @@ from types import SimpleNamespace
 from urllib.parse import quote
 
 BASE = Path(__file__).resolve().parent.parent
+BUSY = ("starting", "login", "waiting", "reading", "downloading", "rechecking", "auditing", "stopping")
+PHASES = {"waiting": "waiting", "loading": "reading", "reading": "reading", "rechecking": "rechecking"}
 SYLLABI = BASE / "syllabi"
 STATUSES = ("mine", "awaiting_approval", "in_progress", "completed", "not_started", "all")
 
@@ -46,12 +48,14 @@ class Job:
         self.folder = self.excel = None
         self.started = None
         self.stop_event = threading.Event()
+        self.ready_event = threading.Event()
+        self.dash = None
 
     def snapshot(self) -> dict:
         with self.lock:
             return {"state": self.state, "message": self.message, "log": self.log[-60:],
                     "done": self.done, "total": self.total, "results": self.results, "overlaps": self.overlaps,
-                    "folder": self.folder.name if self.folder else None,
+                    "dash": self.dash, "folder": self.folder.name if self.folder else None,
                     "excel": file_url(self.folder, self.excel) if self.excel else None}
 
     def _log(self, msg: str):
@@ -59,6 +63,8 @@ class Job:
             self.log.append(msg.strip())
             if msg.strip().startswith("[") and "/" in msg.split("]")[0]:
                 self.done += 1
+                if self.state == "rechecking":
+                    self.state = "downloading"
             if self.stop_event.is_set():
                 return
             if msg.startswith("Log in"):
@@ -68,13 +74,14 @@ class Job:
 
     def start(self, subject: str, term: str, status: str, courses: list[str], use_llm: bool) -> bool:
         with self.lock:
-            if self.state in ("starting", "login", "downloading", "auditing", "stopping"):
+            if self.state in BUSY:
                 return False
         self.reset()
         self.state, self.started = "starting", time.time()
         mine = status == "mine"           # the reviewer's own To Do column, read off their dashboard
         args = SimpleNamespace(subject=subject, term=term, status="awaiting_approval" if mine else status,
-                               courses=courses, mine=mine, crns=[],
+                               courses=courses, mine=mine, crns=[], auto=False,
+                               ask="click Read my To Do column on the Syllabus Audit page",
                                include_masters=False, no_pdf=False)
         threading.Thread(target=self._run, args=(args, use_llm), daemon=True).start()
         return True
@@ -82,11 +89,26 @@ class Job:
     def stop(self) -> bool:
         """Ask the running job to stop. It ends at the next safe point and closes the browser windows."""
         with self.lock:
-            if self.state not in ("starting", "login", "downloading", "auditing"):
+            if self.state not in BUSY or self.state == "stopping":
                 return False
             self.stop_event.set()
             self.state = "stopping"
         return True
+
+    def ready(self) -> bool:
+        """The reviewer says the dashboard shows what they want: read the To Do column now."""
+        with self.lock:
+            if self.state != "waiting":
+                return False
+            self.ready_event.set()
+        return True
+
+    def _seen(self, info: dict):
+        with self.lock:
+            self.dash = {k: info.get(k) for k in ("phase", "found", "count", "capped", "tasks", "term", "toggle", "read",
+                                               "on_screen", "busy", "quiet", "need")}
+            if self.state in ("login", "downloading", "waiting", "reading", "rechecking") and not self.stop_event.is_set():
+                self.state = PHASES.get(info.get("phase"), self.state)
 
     def _run(self, args, use_llm: bool):
         from reviewer.audit import run_audit
@@ -99,9 +121,10 @@ class Job:
             def on_total(n):
                 with self.lock:
                     self.total = n
-                    if not stop.is_set():
+                    if not stop.is_set() and self.state != "rechecking":
                         self.state = "downloading"
-            manifest = run_pull(args, folder, progress=self._log, on_total=on_total, stop=stop)
+            manifest = run_pull(args, folder, progress=self._log, on_total=on_total, stop=stop,
+                                ready=self.ready_event if args.mine else None, on_seen=self._seen)
             if stop.is_set():
                 raise Stopped("Stopped.")
             if not manifest:

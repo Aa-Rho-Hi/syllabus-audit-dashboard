@@ -16,7 +16,7 @@ def client(tmp_path, monkeypatch):
     return TestClient(main.app)
 
 
-def fake_pull(args, out, progress=print, on_total=None, stop=None):
+def fake_pull(args, out, progress=print, on_total=None, stop=None, ready=None, on_seen=None):
     out.mkdir(parents=True)
     progress("Logged in as Test.")
     on_total(1)
@@ -113,6 +113,7 @@ def test_posts_need_json(client, monkeypatch, kw):
     assert client.post("/api/ss/open-folder", **kw).status_code == 415
     assert client.post("/api/ss/run", **kw).status_code in (415, 422)  # FastAPI may reject the body first
     assert client.post("/api/ss/stop", **kw).status_code == 415
+    assert client.post("/api/ss/ready", **kw).status_code == 415
 
 
 def test_my_todo_column_option(monkeypatch):
@@ -129,7 +130,7 @@ def test_my_todo_column_option(monkeypatch):
 def test_stop_button(client, monkeypatch):
     import reviewer.pull
 
-    def waits_for_login(args, out, progress=print, on_total=None, stop=None):
+    def waits_for_login(args, out, progress=print, on_total=None, stop=None, **kw):
         progress("Log in to Simple Syllabus in the browser window that just opened.")
         for _ in range(100):
             reviewer.pull.check_stop(stop)
@@ -175,3 +176,41 @@ def test_stop_skips_rest_of_downloads(tmp_path, monkeypatch):
 class SimpleCtx:
     def close(self):
         pass
+
+
+def test_read_my_todo_button(client, monkeypatch):
+    """Web tab, My To Do column: waits on the dashboard until the reviewer clicks Read."""
+    import reviewer.pull
+    got = {}
+
+    def guided(args, out, progress=print, on_total=None, stop=None, ready=None, on_seen=None):
+        got["ready"] = ready
+        progress("Logged in as Test.")
+        for _ in range(200):
+            on_seen({"phase": "waiting", "found": True, "count": 42, "capped": False, "term": "Spring 2027 - College ...",
+                     "toggle": "Approvals", "on_screen": 6})
+            if ready.is_set():
+                break
+            time.sleep(0.02)
+        assert ready.is_set()
+        on_seen({"phase": "reading", "found": True, "count": 42, "read": 42})
+        return fake_pull(args, out, progress, on_total)
+    monkeypatch.setattr(reviewer.pull, "run_pull", guided)
+    assert client.post("/api/ss/ready", json={}).json()["ok"] is False          # nothing running yet
+    assert client.post("/api/ss/run", json={"status": "mine"}).status_code == 200
+    for _ in range(100):
+        s = client.get("/api/ss/status").json()
+        if s["state"] == "waiting":
+            break
+        time.sleep(0.02)
+    assert s["state"] == "waiting" and s["dash"]["count"] == 42 and s["dash"]["toggle"] == "Approvals"
+    assert client.post("/api/ss/ready", json={}).json()["ok"] is True
+    assert wait_done(client)["state"] == "done"
+
+
+def test_other_statuses_dont_wait(client, monkeypatch):
+    import reviewer.pull
+    got = {}
+    monkeypatch.setattr(reviewer.pull, "run_pull", lambda a, out, **kw: got.update(kw) or fake_pull(a, out, kw["progress"], kw["on_total"]))
+    client.post("/api/ss/run", json={"status": "completed"})
+    assert wait_done(client)["state"] == "done" and got["ready"] is None

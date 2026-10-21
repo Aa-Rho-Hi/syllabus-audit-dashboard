@@ -377,6 +377,12 @@ def ss_run(body: SSRunIn, request: Request):
     return {"ok": True}
 
 
+@app.post("/api/ss/ready")
+def ss_ready(request: Request):
+    _local_only(request)
+    return {"ok": ss.JOB.ready()}
+
+
 @app.post("/api/ss/stop")
 def ss_stop(request: Request):
     _local_only(request)

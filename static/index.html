@@ -864,17 +864,33 @@ const ssState = {filter:"all", open:new Set()};
 bindAuditView("#ss-out", ssState, () => ssData && renderAuditInto("#ss-out", ssData, ssState));
 const SS_STAGE = {starting:"Starting…", login:"Waiting for you to log in to Simple Syllabus in the browser window that opened…",
                   downloading:"Downloading syllabi and making PDFs…", auditing:"Checking learning objectives…",
-                  stopping:"Stopping… the browser windows close in a few seconds."};
+                  stopping:"Stopping… the browser windows close in a few seconds.",
+                  waiting:"Set up your dashboard in the Simple Syllabus window",
+                  reading:"Reading your To Do column. Leave the Simple Syllabus window alone until this finishes.",
+                  rechecking:"Checking your To Do column again for anything that showed up while this ran…"};
 function ssRender(s){
-  const busy = ["starting","login","downloading","auditing","stopping"].includes(s.state);
+  const busy = ["starting","login","waiting","reading","downloading","rechecking","auditing","stopping"].includes(s.state);
   const btn = $("#ss-run"); btn.disabled = busy;
   $("#ss-stop").classList.toggle("hidden", !busy); $("#ss-stop").disabled = s.state === "stopping";
   btn.innerHTML = busy ? '<span class="spin"></span>Working' : (s.state === "done" ? "Run again" : "Download &amp; audit");
   let h = "";
   if (busy){
     const pct = s.total ? Math.round(100 * s.done / s.total) : (s.state === "auditing" ? 100 : 4);
-    h += `<div class="note ${s.state === "login" ? "warn" : "info"}"><b>${esc(SS_STAGE[s.state])}</b>${s.total ? `${s.done} of ${s.total} syllabi` : ""}</div>
+    const d = s.dash || {}, n = d.count == null ? "…" : d.count + (d.capped ? "+" : "");
+    if (s.state === "waiting"){
+      h += `<div class="note warn"><b>${esc(SS_STAGE.waiting)}</b>
+              <ol style="margin:4px 0 0;padding-left:20px"><li>Pick <strong>Approvals</strong> and the terms you want.</li>
+              <li>Click <strong>Read my To Do column</strong> below. No need to wait for the cards to load:
+              it keeps reading until the column stops growing.</li></ol>
+              <div class="muted small" style="margin-top:6px">${d.found ? `To Do column right now: <strong>${esc(n)}</strong>` : "Looking for the To Do column (View: Columns)…"}${d.toggle ? ` · ${esc(d.toggle)} picked` : ""}${d.term ? ` · Term: ${esc(d.term)}` : ""}</div></div>
+            <button class="btn" id="ss-ready" type="button" ${d.found ? "" : "disabled"}>Read my To Do column</button>`;
+    } else {
+      const read = !["reading","rechecking"].includes(s.state) || d.read == null ? "" :
+        `${d.read} cards read, column says ${n}` + (d.busy ? ", still loading…" :
+          d.quiet >= 3 ? `, no change for ${d.quiet} s (done at ${d.need} s)` : ", still growing…");
+      h += `<div class="note ${s.state === "login" ? "warn" : "info"}"><b>${esc(SS_STAGE[s.state])}</b>${s.total ? `${s.done} of ${s.total} syllabi` : esc(read)}</div>
           <div class="progress"><i style="width:${pct}%"></i></div>`;
+    }
   } else if (s.state === "stopped"){
     h += `<div class="note info"><b>Stopped.</b>Pick what you want and click Download &amp; audit to start again.</div>`;
   } else if (s.state === "error"){
@@ -882,9 +898,15 @@ function ssRender(s){
   } else if (s.state === "done" && s.message){
     h += `<p class="muted small" style="margin:12px 0 0">${esc(s.message)}</p>`;
   }
-  if (s.log && s.log.length && (busy || s.state === "error"))
+  if (s.log && s.log.length && (busy || s.state === "error" || (s.state === "done" && /Heads up|Couldn't find/.test(s.log.join("\n")))))
     h += `<div class="sslog">${esc(s.log.slice(-12).join("\n"))}</div>`;
   $("#ss-progress").innerHTML = h;
+  const rb = $("#ss-ready");
+  if (rb) rb.onclick = async () => {
+    rb.disabled = true;
+    await fetch("/api/ss/ready", {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"}).catch(() => {});
+    ssPoll();
+  };
   $("#ss-actions").classList.toggle("hidden", !(s.state === "done" && s.excel));
   if (s.excel) $("#ss-excel").href = s.excel;
   if (s.state === "done" && s.results){

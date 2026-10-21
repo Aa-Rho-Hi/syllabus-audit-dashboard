@@ -25,6 +25,10 @@ For reviewing the Simple Syllabus approval queue on your own computer. Nothing g
 
 **Easiest:** **Windows:** double-click `run_web.bat`. **Mac/Linux:** `./run_web.sh` (Linux without Chrome or Edge gets its own Chromium the first time). It sets itself up, starts the app on your own computer and opens http://localhost:8000/reviewer. Keep its window open and use the **Simple Syllabus** tab ("My To Do column" is the default). Pick the subject/status/term, click **Download & audit**, log in in the window that pops up, and the results, Excel and PDFs show up on the page. **Stop** cancels a run.
 
+**My To Do column (the default):** after you log in, the Simple Syllabus window stays on your dashboard. Pick **Approvals** and the terms you want, then click **Read my To Do column** on the Syllabus Audit page (on the command line: press Enter). No need to wait for the cards to load. The count goes up as they arrive, so the tool keeps reading until the column stops growing (no new cards for 45 seconds, no spinner), then downloads. Leave the Simple Syllabus window alone while it reads. It gets every card in the right term and tells you if anything looks short.
+
+Only To Do counts: anything that also shows in Not Ready or Completed, or that Simple Syllabus lists as completed or not started, is left out and listed in the log. When the downloads are done it looks at To Do once more and also gets anything that showed up meanwhile. Anything added after that: run it again. It never swaps in a different list.
+
 **Or from the command line:** **Windows:** double-click `run_review.bat`. **Mac:** `./run_review.sh`. First run sets itself up (needs Python 3 and Edge or Chrome).
 
 1. A browser window opens on tamu.simplesyllabus.com. Log in with your NetID like normal. It closes by itself once you're in, and remembers the login for next time. The login is kept in your own private app-data folder (not the tool folder), is thrown away after 2 weeks without use, and `run_review.bat --logout` forgets it right away.
@@ -46,6 +50,8 @@ Options go after the file name:
 
 | Want | Run |
 |---|---|
+| Don't wait for Enter: pick Approvals and read once it stops loading | `run_review.bat --auto` |
+| Skip the second look at To Do at the end | `run_review.bat --no-recheck` |
 | Every ECEN syllabus awaiting approval, not just your To Do | `run_review.bat --everyone` |
 | Exact sections, by the number in brackets on the card | `run_review.bat --crns 56552 38440` |
 | One term | `run_review.bat --term "Spring 2027"` |

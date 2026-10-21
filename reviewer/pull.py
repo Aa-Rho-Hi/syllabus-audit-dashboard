@@ -4,7 +4,8 @@
     python -m reviewer.pull --term "Spring 2027"     # one term
     python -m reviewer.pull --status completed       # finished ones instead
     python -m reviewer.pull --courses 314 403        # only these course numbers
-    python -m reviewer.pull --mine                   # only what's in your dashboard's To Do column
+    python -m reviewer.pull --mine                   # only what's in your dashboard's To Do column (you press Enter when it has loaded)
+    python -m reviewer.pull --mine --auto            # same, but picks Approvals itself and reads once loading stops
     python -m reviewer.pull --crns 56552 38440       # only these sections (the number in brackets)
 
 A browser window opens on Simple Syllabus. Log in with your TAMU NetID the normal way; the
@@ -20,6 +21,7 @@ import json
 import os
 import shutil
 import sys
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -153,6 +155,7 @@ def login(pw, progress=say, stop=None):
     ctx = launch(pw, headless=False, user_data_dir=str(prepare_profile()), viewport={"width": 1200, "height": 850})
     try:
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
+        dashboard.watch(page)        # keep the dashboard's own API answers from its very first load
         page.goto(f"{BASE_URL}/en-US/dashboard", wait_until="domcontentloaded")
         who = logged_in(ctx.request)
         if not who:
@@ -287,46 +290,87 @@ def list_docs(request, args) -> list[dict]:
     return sorted(keep, key=lambda d: (d.get("term_name") or "", d.get("title") or ""))
 
 
-def my_docs(request, args, out: Path, progress=say, stop=None) -> list[dict]:
+def docs_for_cards(request, args, cards: list[dict], api_docs: dict) -> tuple[list[dict], list[str]]:
+    """The syllabi for these To Do cards: Simple Syllabus's list (any status), else the dashboard's data."""
+    keys = [dashboard.card_key(c["label"]) for c in cards]
+    everything = []
+    for s in sorted({k[0] for k in keys if k} | {args.subject}):
+        everything += list_docs(request, SimpleNamespace(subject=s, status="all", term="", courses=[],
+                                                         include_masters=False))
+    docs, missing = dashboard.match_cards(cards, everything, api_docs)
+    if args.term:
+        docs = [d for d in docs if args.term.lower() in (d.get("term_name") or "").lower()]
+    if args.courses:
+        docs = [d for d in docs if str(d.get("course_number")) in args.courses]
+    return docs, missing
+
+
+def my_docs(request, args, out: Path, progress=say, stop=None, ready=None, on_seen=None,
+            read: dict | None = None) -> list[dict]:
     """--mine / --crns: only the reviewer's own queue. Reads the To Do column off their dashboard
-    (or takes the CRNs they typed), then finds those sections in the public list, whatever their status."""
+    (or takes the CRNs they typed), then finds those sections in the public list, whatever their status.
+    ready: threading.Event the reviewer sets once the dashboard shows what they want (see dashboard.read_todo)."""
     crns = list(getattr(args, "crns", None) or [])
     check = {"mode": "crns" if crns else "dashboard"}
+    api_docs = {}
     if crns:
         wanted, term = crns, args.term
     else:
-        todo = dashboard.read_todo(request.page, progress, stop=stop)
+        todo = dashboard.read_todo(request.page, progress, stop=stop, ready=ready, on_seen=on_seen,
+                                   auto=getattr(args, "auto", False) or ready is None,
+                                   ask=getattr(args, "ask", None) or "press Enter here")
         check_stop(stop)
-        check.update({k: todo.get(k) for k in ("count", "capped", "term", "problem", "api")})
-        wanted, term = todo["labels"], todo.get("term") or ""
-        if not wanted:
+        check.update({k: todo.get(k) for k in ("count", "capped", "tasks", "settled", "term", "toggle", "from_api",
+                                               "problem", "api")})
+        check["cards"] = todo["cards"]
+        check["excluded"] = todo.get("excluded") or []
+        if check["excluded"]:
+            progress(f"Left out {len(check['excluded'])} card(s) that also show in another column: "
+                     + ", ".join(f"{c['label']} ({c['also_in']})" for c in check["excluded"][:10]))
+        cards, api_docs = todo["cards"], todo.get("api_docs") or {}
+        if not cards:
             (out / "dashboard-check.json").write_text(json.dumps(check, indent=1), encoding="utf-8")
-            if not todo.get("problem"):
-                progress("Your To Do column is empty, so there's nothing to download.")
-                return []
-            progress(f"Couldn't read your To Do column ({todo['problem']}). "
-                     f"Falling back to every {args.subject} syllabus awaiting approval.")
-            return list_docs(request, args)
-        progress(f"Your To Do column{' (' + term + ')' if term else ''}: {len(wanted)} syllabi"
-                 + (f" (the page says {todo['count']})" if todo.get("count") not in (None, len(wanted)) else "") + ".")
-    subjects = sorted({k[0] for w in wanted if (k := dashboard.card_key(w))} | {args.subject})
-    everything = []
-    for s in subjects:
-        everything += list_docs(request, SimpleNamespace(subject=s, status="all", term="", courses=[],
-                                                         include_masters=False))
+            if todo.get("problem"):
+                # Never swap in a different list: the reviewer only cares about what's in To Do.
+                raise SystemExit(f"Couldn't read your To Do column: {todo['problem']}")
+            progress("Your To Do column is empty, so there's nothing to download.")
+            return []
+        count = todo.get("count")
+        progress(f"Read {len(cards)} cards from your To Do column"
+                 + (f" (it says {count}{'+' if todo.get('capped') else ''})" if count is not None else "")
+                 + (f", {todo['from_api']} of them from the dashboard's own data" if todo.get("from_api") else "") + ".")
+        if todo.get("toggle") in ("All", "Syllabus"):
+            progress(f"Heads up: the dashboard was on {todo['toggle']}, not Approvals, so this includes "
+                     "whatever that view lists in To Do.")
+        if not todo.get("settled"):
+            progress("Heads up: the To Do column was still changing when reading stopped.")
+        if todo.get("tasks") and count is not None and count != todo["tasks"]:
+            progress(f"Note: the welcome line says {todo['tasks']} tasks and the To Do column says {count}.")
+        if count and not todo.get("capped") and len(cards) < count:
+            progress(f"Heads up: only {len(cards)} of {count} cards could be read. The rest may still have been "
+                     "loading. Check the list in dashboard-check.json, or run it again.")
+        wanted = cards
+        if read is not None:
+            read["cards"] = cards
     if crns:
+        everything = list_docs(request, SimpleNamespace(subject=args.subject, status="all", term="", courses=[],
+                                                        include_masters=False))
         docs, missing = dashboard.match_crns(wanted, everything, term)
+        if args.courses:
+            docs = [d for d in docs if str(d.get("course_number")) in args.courses]
     else:
-        docs, missing = dashboard.match_docs(wanted, everything, term)
-        if args.term:
-            docs = [d for d in docs if args.term.lower() in (d.get("term_name") or "").lower()]
-    if args.courses:
-        docs = [d for d in docs if str(d.get("course_number")) in args.courses]
-    check.update({"wanted": wanted, "matched": len(docs), "missing": missing})
+        docs, missing = docs_for_cards(request, args, wanted, api_docs)
+    check.update({"wanted": wanted if crns else [c["label"] for c in wanted], "matched": len(docs), "missing": missing})
     (out / "dashboard-check.json").write_text(json.dumps(check, indent=1), encoding="utf-8")
     if missing:
-        progress(f"Not found in Simple Syllabus's list ({len(missing)}): {', '.join(missing[:20])}")
+        progress(f"Couldn't find these in Simple Syllabus ({len(missing)}): {', '.join(missing[:20])}")
     return sorted(docs, key=lambda d: (d.get("term_name") or "", d.get("title") or ""))
+
+
+def enter_sets(event):
+    """Each Enter on the keyboard sets the event (read_todo clears it when it starts waiting)."""
+    while sys.stdin.readline():
+        event.set()
 
 
 def main(argv=None):
@@ -341,6 +385,10 @@ def main(argv=None):
     ap.add_argument("--everyone", dest="mine", action="store_false",
                     help="every syllabus with --status, not just your To Do column (undoes --mine)")
     ap.add_argument("--crns", nargs="*", default=[], help="only these sections, by CRN (the number in brackets)")
+    ap.add_argument("--no-recheck", action="store_true",
+                    help="with --mine: don't read the To Do column again at the end for new cards")
+    ap.add_argument("--auto", action="store_true",
+                    help="with --mine: don't wait for Enter, pick Approvals and read once the dashboard stops loading")
     ap.add_argument("--include-masters", action="store_true", help="also pull course-level master docs")
     ap.add_argument("--out", default="", help="output folder (default syllabi/<today>)")
     ap.add_argument("--no-pdf", action="store_true", help="skip PDFs, only save data for the audit")
@@ -351,7 +399,11 @@ def main(argv=None):
         return 0
 
     out = Path(args.out) if args.out else ROOT / "syllabi" / datetime.now().strftime("%Y-%m-%d")
-    manifest = run_pull(args, out)
+    ready = None
+    if args.mine and not args.crns and not args.auto and sys.stdin.isatty():
+        ready = threading.Event()     # Enter = "the dashboard shows what I want"
+        threading.Thread(target=enter_sets, args=(ready,), daemon=True).start()
+    manifest = run_pull(args, out, ready=ready)
     blind = sum(1 for m in manifest if m["note"].startswith(("no content", "HTTP")))
     say(f"\nSaved to {out}")
     if blind:
@@ -360,10 +412,48 @@ def main(argv=None):
     return 0
 
 
-def run_pull(args, out: Path, progress=say, on_total=None, stop=None) -> list[dict]:
+RECHECKS = 3
+
+
+def recheck(request, args, out, cards, docs, download, total, progress, stop, on_seen, on_total) -> int:
+    """After the downloads, read the To Do column again (no reload) and get any card that wasn't
+    there the first time: cards that loaded late, or tasks added while this ran. Returns the new total."""
+    have = {(c["label"], dashboard._norm_term(c["term"])) for c in cards}
+    codes = {d.get("code") for d in docs}
+    added = []
+    for _ in range(RECHECKS):
+        check_stop(stop)
+        progress("Checking your To Do column again for anything that showed up while this ran...")
+        todo = dashboard.read_todo(request.page, progress, stop=stop, on_seen=on_seen, recheck=True)
+        check_stop(stop)
+        new = [c for c in todo["cards"] if (c["label"], dashboard._norm_term(c["term"])) not in have]
+        have |= {(c["label"], dashboard._norm_term(c["term"])) for c in new}
+        more, missing = docs_for_cards(request, args, new, todo.get("api_docs") or {}) if new else ([], [])
+        more = [d for d in more if d.get("code") not in codes]
+        if not new:
+            progress("Nothing new.")
+            break
+        progress(f"{len(new)} new in To Do: {', '.join(c['label'] for c in new[:20])}"
+                 + (f". Couldn't find {', '.join(missing[:10])}" if missing else ""))
+        codes |= {d.get("code") for d in more}
+        added += [c["label"] for c in new]
+        total += len(more)
+        if on_total:
+            on_total(total)
+        download(more)
+    f = out / "dashboard-check.json"
+    if added and f.exists():
+        check = json.loads(f.read_text(encoding="utf-8"))
+        check["added_later"] = added
+        f.write_text(json.dumps(check, indent=1), encoding="utf-8")
+    return total
+
+
+def run_pull(args, out: Path, progress=say, on_total=None, stop=None, ready=None, on_seen=None) -> list[dict]:
     """The whole download. Used by the command line and by the web app's Simple Syllabus tab.
     progress(msg) gets status lines; on_total(n) is called once the list is known.
-    stop: a threading.Event; once it's set the run raises Stopped at the next safe point."""
+    stop: a threading.Event; once it's set the run raises Stopped at the next safe point.
+    ready / on_seen: for --mine, see my_docs and dashboard.read_todo."""
     from playwright.sync_api import sync_playwright
 
     out.mkdir(parents=True, exist_ok=True)
@@ -372,8 +462,9 @@ def run_pull(args, out: Path, progress=say, on_total=None, stop=None) -> list[di
         session, request = login(pw, progress, stop)
         browser = launch(pw, headless=True)          # only for making PDFs; never talks to Simple Syllabus
         try:
+            read = {}
             if getattr(args, "mine", False) or getattr(args, "crns", None):
-                docs = my_docs(request, args, out, progress, stop)
+                docs = my_docs(request, args, out, progress, stop, ready, on_seen, read)
                 progress(f"Found {len(docs)} syllabi to download.")
             else:
                 docs = list_docs(request, args)
@@ -382,18 +473,25 @@ def run_pull(args, out: Path, progress=say, on_total=None, stop=None) -> list[di
             check_stop(stop)
             if on_total:
                 on_total(len(docs))
-            page = render_page(browser) if docs else None
-            for n, d in enumerate(docs, 1):
-                check_stop(stop)          # outside the try, so it isn't counted as one bad syllabus
-                try:
-                    doc, status = fetch_doc(request, d)
-                    entry = save_doc(doc, status, out, page, args.no_pdf)
-                except Exception as e:   # one bad syllabus never stops the run
-                    entry = {"course": str(d.get("title") or d.get("code")), "code": d.get("code"), "pdf": None,
-                             "note": f"skipped: {type(e).__name__}: {str(e)[:80]}"}
-                progress(f"  [{n}/{len(docs)}] {entry['course']}: {entry['note']}")
-                manifest.append(entry)
-                time.sleep(0.3)   # be gentle with their server
+            page = render_page(browser)
+            total = len(docs)
+
+            def download(batch):
+                for d in batch:
+                    check_stop(stop)          # outside the try, so it isn't counted as one bad syllabus
+                    try:
+                        doc, status = fetch_doc(request, d)
+                        entry = save_doc(doc, status, out, page, args.no_pdf)
+                    except Exception as e:   # one bad syllabus never stops the run
+                        entry = {"course": str(d.get("title") or d.get("code")), "code": d.get("code"), "pdf": None,
+                                 "note": f"skipped: {type(e).__name__}: {str(e)[:80]}"}
+                    manifest.append(entry)
+                    progress(f"  [{len(manifest)}/{total}] {entry['course']}: {entry['note']}")
+                    time.sleep(0.3)   # be gentle with their server
+            download(docs)
+            if read.get("cards") is not None and not getattr(args, "no_recheck", False):
+                total = recheck(request, args, out, read["cards"], docs, download, total, progress, stop,
+                                on_seen, on_total)
             (out / "manifest.json").write_text(json.dumps(manifest, indent=1), encoding="utf-8")
         finally:
             browser.close()
