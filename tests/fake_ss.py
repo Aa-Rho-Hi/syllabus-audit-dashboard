@@ -45,7 +45,7 @@ def aydin():
 
 def dashboard_html(data, start="All", batch=6, batch_ms=150, mode="virtual", hide_last=0, auto_pick_ms=None,
                    extra_card_html="", count="loaded", spinner=True, lazy=False, pause=None, then_pick=None,
-                   live=False):
+                   live=False, scroller=None):
     """mode: "virtual" (To Do is its own scroll box that only draws what's in view) or "page" (the
     whole page scrolls and cards pile up). Cards arrive `batch` at a time, like the real slow load.
     count: "loaded" (the header counts cards as they arrive, like Aydin's) or "total" (shows the
@@ -54,11 +54,14 @@ def dashboard_html(data, start="All", batch=6, batch_ms=150, mode="virtual", hid
     pause: (after_n, ms), loading stops for ms after n cards. hide_last: that many cards never get
     drawn (only the API has them). auto_pick_ms: the "reviewer" clicks Approvals after that long.
     then_pick: (view, ms), the reviewer switches again later (changes the filters mid-read).
-    live: the page polls every 0.5 s and adds data["late"] to To Do once the site says so."""
+    live: the page polls every 0.5 s and adds data["late"] to To Do once the site says so.
+    scroller="main": like Aydin's (2026-10-21), the page itself doesn't scroll; an app box around
+    the board does, and the column has no scroll box of its own. lazy="wheel": more cards only
+    load on real mouse-wheel scrolling near the bottom (not on scripted scrolling)."""
     card_data = lambda ds: [{"label": d["title"], "term": d["term_name"], "name": d["name"]} for d in ds]
     cfg = {"approvals": card_data(data["todo"]), "own": card_data(data["own"]), "start": start, "batch": batch,
            "batch_ms": batch_ms, "mode": mode, "hide": hide_last, "auto": auto_pick_ms, "count": count,
-           "spinner": spinner, "lazy": lazy, "pause": pause, "then": then_pick, "live": live,
+           "spinner": spinner, "lazy": lazy, "pause": pause, "then": then_pick, "live": live, "scroller": scroller,
            "late": card_data(data.get("late") or [])}
     static = lambda ds: "".join(f'<div class="card"><div class="tag"><span>Syllabus</span> <span>{d["term_name"]}</span></div>'
                                 f'<p>{d["title"]}</p><h4>{d["name"]}</h4><div>✓ 0/2</div><div>E G +8</div></div>' for d in ds)
@@ -68,7 +71,8 @@ def dashboard_html(data, start="All", batch=6, batch_ms=150, mode="virtual", hid
       .col{{width:300px}} .menu{{display:none}}
       @keyframes spin{{to{{transform:rotate(360deg)}}}}
       #spin{{display:inline-block;width:12px;height:12px;border:2px solid #999;border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite}}
-    </style></head><body>
+    </style></head><body{' style="overflow:hidden;height:100vh"' if scroller == "main" else ""}>
+    <div id="main"{' style="height:100vh;overflow:auto"' if scroller == "main" else ""}>
     <h1>Welcome back, Aydin. <small id="tasks"></small></h1>
     <div id="toggle"><button data-v="All">All</button><button data-v="Syllabus">Syllabus</button><button data-v="Approvals">Approvals</button></div>
     <div class="field"><span>Looking for something...</span><button>Filters</button></div>
@@ -82,12 +86,16 @@ def dashboard_html(data, start="All", batch=6, batch_ms=150, mode="virtual", hid
       <section style="writing-mode:vertical-rl;width:40px"><h3>Awaiting Approval <span>0</span></h3></section>
       <section class="col"><h3>Completed <span>99</span>+</h3>{static(data["completed"])}</section>
     </div>
+    </div>
     <script>
       const C = {js_cfg}, H = 124, list = document.getElementById("list"), inner = document.getElementById("inner");
       let view = C.start, loaded = 0, timer = null, paused = false;
-      const nearBottom = () => C.mode === "virtual" ? list.scrollTop + list.clientHeight >= list.scrollHeight - 60
-                                                    : innerHeight + scrollY >= document.documentElement.scrollHeight - 60;
-      if (C.mode === "virtual") list.style.cssText = "height:520px;overflow-y:auto";
+      const main = document.getElementById("main");
+      const sc = () => C.scroller === "main" ? main : C.mode === "virtual" ? list : document.scrollingElement;
+      const nearBottom = () => sc().scrollTop + sc().clientHeight >= sc().scrollHeight - 60;
+      let wheeled = false;
+      sc().addEventListener("wheel", () => {{ wheeled = true; }}, {{passive: true}});   // only wheels that reach the list
+      if (C.mode === "virtual" && C.scroller !== "main") list.style.cssText = "height:520px;overflow-y:auto";
       const items = () => view === "Approvals" ? C.approvals : view === "All" ? C.approvals.concat(C.own) : C.own;
       function card(c) {{
         const d = document.createElement("div"); d.className = "card";
@@ -102,11 +110,11 @@ def dashboard_html(data, start="All", batch=6, batch_ms=150, mode="virtual", hid
       }}
       function draw() {{
         const all = items(), drawn = all.slice(0, Math.max(0, loaded - C.hide));
-        document.getElementById("n").textContent = C.count === "loaded" ? loaded : all.length;
+        document.getElementById("n").textContent = C.count === "loaded" ? loaded : C.count === "low" ? all.length - 2 : all.length;
         document.getElementById("spin").style.display = C.spinner === "always" || (C.spinner && loaded < all.length) ? "" : "none";
         document.getElementById("tasks").textContent = `You have ${{all.length}} tasks to complete`;
         inner.textContent = "";
-        if (C.mode === "virtual") {{
+        if (C.mode === "virtual" && C.scroller !== "main") {{
           const first = Math.floor(list.scrollTop / H);
           inner.style.cssText = `box-sizing:border-box;height:${{drawn.length * H}}px;padding-top:${{first * H}}px`;
           drawn.slice(first, first + 6).forEach(c => inner.append(card(c)));
@@ -117,7 +125,9 @@ def dashboard_html(data, start="All", batch=6, batch_ms=150, mode="virtual", hid
         if (loaded >= n) return draw();
         let wait = C.batch_ms;
         if (C.pause && !paused && loaded >= C.pause[0]) {{ paused = true; wait = C.pause[1]; }}
-        else if (!C.lazy || loaded === 0 || nearBottom()) loaded = Math.min(n, loaded + C.batch);
+        else if (!C.lazy || loaded === 0 || (nearBottom() && (C.lazy !== "wheel" || wheeled))) {{
+          loaded = Math.min(n, loaded + C.batch); wheeled = false;
+        }}
         draw(); timer = setTimeout(tick, wait);
       }}
       function pick(v) {{

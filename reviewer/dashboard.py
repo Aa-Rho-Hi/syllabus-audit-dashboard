@@ -84,7 +84,7 @@ SCRAPE_JS = r"""(opts) => {
     return {head, col};
   };
   // Cards: the smallest elements holding one label, grown to the biggest box with only that label.
-  const cardsIn = (col, limit) => {
+  const cardsIn = (col, limit, els) => {
     const small = [...col.querySelectorAll("*")].filter(e => (e.innerText || "").length < 90 && labelsIn(e.innerText).length === 1);
     const leaves = small.filter(e => ![...e.children].some(c => small.includes(c)));
     const cards = [], seen = new Set();
@@ -105,6 +105,7 @@ SCRAPE_JS = r"""(opts) => {
       if (seen.has(key)) continue;
       seen.add(key);
       cards.push({label, term: cterm.slice(0, 80), kind});
+      if (els) els.push(card);
       if (cards.length >= limit) break;
     }
     return cards;
@@ -114,7 +115,7 @@ SCRAPE_JS = r"""(opts) => {
   if (!todo) return {found: false, toggle, tasks, term: term.slice(0, 80)};
   const {head, col} = todo;
   const m = txt(head).match(/(\d+)(\+?)$/) || (head.parentElement && txt(head.parentElement).match(/^To ?Do\s+(\d+)(\+?)(\s|$)/i));
-  const cards = cardsIn(col, 500);
+  const els = [], cards = cardsIn(col, 2000, els);
   // The same cards' neighbours: whatever the other columns show right now, to keep them out of To Do.
   const others = [];
   for (const k of ["notready", "awaiting", "completed"]) {
@@ -135,17 +136,42 @@ SCRAPE_JS = r"""(opts) => {
   }
 
   const more = [...col.querySelectorAll("button, a")].find(b => /^(load|show) more/i.test(txt(b)));
-  const box = [col, ...col.querySelectorAll("*")].find(e => e.scrollHeight > e.clientHeight + 20 &&
-                /(auto|scroll)/.test(getComputedStyle(e).overflowY));
-  const at = () => box ? box.scrollTop + box.clientHeight >= box.scrollHeight - 5
-                       : innerHeight + scrollY >= document.documentElement.scrollHeight - 5;
-  const bottom = at() && !more;          // read first, then move: lazy lists draw after the scroll event
-  const go = y => box ? (box.scrollTop = y) : window.scrollTo(0, y);
-  const pos = () => box ? box.scrollTop : scrollY, view = () => box ? box.clientHeight : innerHeight;
-  if (opts.scroll === "top") go(0);
-  else if (opts.scroll === "down") { if (more) more.click(); else go(pos() + view() * 0.6); }
-  else if (opts.scroll === "nudge") { const y = pos(); go(Math.max(0, y - view())); setTimeout(() => go(y + view()), 200); }
-  return {found: true, count: m ? +m[1] : null, capped: !!(m && m[2]), cards, others, bottom, busy, tasks, toggle, term: term.slice(0, 80)};
+  // What actually scrolls the cards: the nearest scrolling box above the last card (the column's own
+  // list, or an app box around the whole board, as on Aydin's), else the page.
+  const scrollable = e => e && e !== document.body && e !== document.documentElement &&
+    /(auto|scroll|overlay)/.test(getComputedStyle(e).overflowY) && e.scrollHeight > e.clientHeight + 20;
+  const last = els.length ? els.reduce((a, b) => (a.compareDocumentPosition(b) & 4 ? b : a)) : col;
+  let box = null;
+  for (let p = last.parentElement; p && !box; p = p.parentElement) if (scrollable(p)) box = p;
+  if (!box) box = [...col.querySelectorAll("*")].find(scrollable) || null;
+  const sc = box || document.scrollingElement || document.documentElement;
+  const chain = () => { let t = (document.scrollingElement || document.documentElement).scrollTop;
+                        for (let p = last; p; p = p.parentElement) t += p.scrollTop || 0; return Math.round(t); };
+  const bottom = sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 5 && !more;   // read first, then move
+  const before = sc.scrollTop;
+  if (opts.scroll === "top") { sc.scrollTop = 0; window.scrollTo(0, 0); }
+  else if (opts.scroll === "down") { if (more) more.click(); else sc.scrollTop = before + sc.clientHeight * 0.6; }
+  const wheel = dy => { for (const t of [last, sc]) t.dispatchEvent(new WheelEvent("wheel", {deltaY: dy, bubbles: true, cancelable: true})); };
+  if (opts.scroll === "nudge") {    // lists that load at the bottom: bring the last card in, step back, go again
+    wheel(-300); wheel(900);
+    last.scrollIntoView({block: "end"});
+    sc.scrollTop = Math.max(0, sc.scrollTop - sc.clientHeight);
+    setTimeout(() => { sc.scrollTop = sc.scrollHeight; last.scrollIntoView({block: "end"}); }, 200);
+  }
+  const moved = sc.scrollTop !== before;
+  if (opts.scroll === "down" && !moved && !more) wheel(Math.round((sc.clientHeight || innerHeight) * 0.6));
+  // Where a mouse wheel would land inside the To Do column (for lists that only react to a real wheel).
+  // Banners and pop-ups can sit on top of it, so only a spot where the column is really under the pointer.
+  const cr = col.getBoundingClientRect();
+  let wx = -1, wy = -1;
+  const x0 = Math.max(cr.left, 0), x1 = Math.min(cr.right, innerWidth), y0 = Math.max(cr.top, 0), y1 = Math.min(cr.bottom, innerHeight);
+  for (let y = y1 - 20; wx < 0 && y > y0; y -= 40)
+    for (const x of [(x0 + x1) / 2, x0 + 20, x1 - 20]) {
+      const hit = x > 0 && x < innerWidth ? document.elementFromPoint(x, y) : null;
+      if (hit && col.contains(hit)) { wx = Math.round(x); wy = Math.round(y); break; }
+    }
+  return {found: true, count: m ? +m[1] : null, capped: !!(m && m[2]), cards, others, bottom, moved, pos: chain(),
+          wx, wy, view: sc.clientHeight || innerHeight, busy, tasks, toggle, term: term.slice(0, 80)};
 }"""
 
 
@@ -374,9 +400,20 @@ def _wait(page, ms):
         time.sleep(ms / 1000)
 
 
+def _wheel(page, res, dy):
+    """A real mouse wheel over the To Do column (the page's own scrolling, exactly as a hand does it)."""
+    try:
+        x, y = int(res.get("wx")), int(res.get("wy"))
+        if x > 0 and y > 0:
+            page.mouse.move(x, y)
+            page.mouse.wheel(0, dy)
+    except Exception:
+        pass
+
+
 def _cards(res) -> list[dict]:
     out = []
-    for c in (res.get("cards") or [])[:500]:
+    for c in (res.get("cards") or [])[:MAX_CARDS]:
         labels = parse_cards(c.get("label") if isinstance(c, dict) and isinstance(c.get("label"), str) else "")
         if len(labels) == 1:
             out.append({"label": labels[0], "term": clean_term(c.get("term")), "kind": clean_term(c.get("kind"))[:20]})
@@ -389,7 +426,7 @@ def _int(x):
 
 def read_todo(page, progress=print, stop=None, ready=None, on_seen=None, auto=None, reload=None,
               ask="click Read my To Do column", wait_s=1800, load_s=1800, quiet_s=45, stuck_s=300,
-              recheck=False, step_ms=400) -> dict:
+              recheck=False, step_ms=400, short_s=180) -> dict:
     """Read the To Do column of the dashboard open in `page`.
 
     Guided (ready is a threading.Event, the default from the web tab and the command line): the
@@ -400,10 +437,12 @@ def read_todo(page, progress=print, stop=None, ready=None, on_seen=None, auto=No
     Either way it then keeps scrolling and reading until the column has settled: at the bottom,
     no new cards and no change in the count for quiet_s, no spinner or open request (ignored once
     nothing has changed for stuck_s), and at least the count read. If the welcome line says more
-    tasks than the column has, or fewer cards were read than the count, it waits 3x / 2x as long
+    tasks than the column has, or fewer cards were read than the count, it waits 3x as long / up to short_s
     first. load_s caps the whole read. stop: a threading.Event that ends it early.
     recheck: the column was read before in this window; just read it again, as it is now.
     step_ms: pause between scroll steps (lazy lists need a moment to draw).
+    short_s: while fewer cards than the column's count have been read, keep scrolling this long
+    with nothing new before giving up (with a warning).
     on_seen(info) gets live numbers for the web page.
 
     Returns {"cards": [{"label", "term"}], "labels", "count", "capped", "tasks", "term", "toggle",
@@ -477,11 +516,18 @@ def read_todo(page, progress=print, stop=None, ready=None, on_seen=None, auto=No
         _wait(page, 800)
         keys = set()
         start = last_change = time.time()
-        sig, misses, bottom = None, 0, False
+        sig, misses, bottom, last_pos, still = None, 0, False, None, 0
         while True:
             if stopped():
                 return result(problem="Stopped.")
             res = _eval(page, {"scroll": "nudge" if bottom else "down"})
+            if res.get("found"):
+                # Some lists only move (or only load more) for a real mouse wheel, like his hand did.
+                if bottom:
+                    _wheel(page, res, -300)
+                    _wheel(page, res, 900)
+                elif not res.get("moved"):
+                    _wheel(page, res, int((res.get("view") or 600) * 0.6))
             if not res.get("found"):
                 misses += 1
                 if misses > 30:
@@ -509,12 +555,17 @@ def read_todo(page, progress=print, stop=None, ready=None, on_seen=None, auto=No
             new_sig = (count, bool(res.get("capped")), len(cards), toggle)
             if new_sig != sig:
                 sig, last_change = new_sig, now
-            quiet, bottom = now - last_change, bool(res.get("bottom"))
+            # At the bottom when the scroll box says so, or when nothing moves any more however it's scrolled.
+            pos = res.get("pos")
+            still = still + 1 if pos is not None and pos == last_pos else 0
+            last_pos = pos
+            quiet, bottom = now - last_change, bool(res.get("bottom")) or still >= 3
             if busy and quiet >= stuck_s:
                 busy = False         # a spinner that never stops (or a stuck request): stop trusting it
             tasks = _int(res.get("tasks"))
             short = count is not None and not res.get("capped") and len(cards) < count
-            need = quiet_s * (3 if tasks and count is not None and count < tasks else 2 if short else 1)
+            # The count at the top is the target: fewer read means keep scrolling and loading much longer.
+            need = max(short_s if short else 0, quiet_s * (3 if tasks and count is not None and count < tasks else 1))
             report("rechecking" if recheck else "reading", res, read=len(cards), busy=busy, quiet=int(quiet), need=int(need))
             if bottom and not busy and quiet >= need:
                 state["settled"] = True
