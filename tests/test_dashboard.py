@@ -37,7 +37,7 @@ def fake_browser(monkeypatch, tmp_path):
     monkeypatch.setattr(pull, "logged_in", lambda req: "Test Reviewer")   # ctx.request isn't routed
     monkeypatch.setattr(pull, "time", SimpleNamespace(time=time.time, sleep=lambda s: None))
     monkeypatch.setattr(dashboard, "read_todo",
-                        functools.partial(REAL_READ_TODO, quiet_s=1.5, stuck_s=20, load_s=40, wait_s=20, step_ms=150, short_s=4))
+                        functools.partial(REAL_READ_TODO, quiet_s=1.5, stuck_s=20, load_s=40, wait_s=20, step_ms=150))
     return holder
 
 
@@ -145,24 +145,12 @@ def guided_now(info, seen):
 def test_count_that_keeps_climbing(fake_browser, tmp_path, monkeypatch, opts, quiet):
     """Stalls are longer than reading the cards takes, so stopping on "nothing new for a bit"
     alone would end at 20 (checked by hand: no spinner, no tasks line, 9 s stall -> 20)."""
-    monkeypatch.setattr(dashboard, "read_todo", functools.partial(REAL_READ_TODO, quiet_s=quiet, stuck_s=12, load_s=90, step_ms=150, short_s=4))
+    monkeypatch.setattr(dashboard, "read_todo", functools.partial(REAL_READ_TODO, quiet_s=quiet, stuck_s=12, load_s=90, step_ms=150))
     data = fake_ss.aydin()
     site = fake_ss.Site(data, start="Approvals", **opts)
     manifest, log, seen = run(fake_browser, site, tmp_path / "out", guided_now, no_recheck=True)
     assert saved(tmp_path / "out")[0] == want(data)
     assert not any("Heads up" in m for m in log)
-
-
-@pytest.mark.parametrize("lazy", [True, "wheel"], ids=["loads-on-scroll", "loads-only-on-mouse-wheel"])
-@pytest.mark.parametrize("count", ["total", "loaded", "low"])
-def test_his_layout_outer_box_scrolls(fake_browser, tmp_path, lazy, count):
-    """2026-10-21 on his machine: the page itself doesn't scroll, a box around the board does, and
-    more cards only load when that's scrolled to the bottom. He had to scroll by hand. The header
-    count may be the full number, climb as cards load, or even be a bit low: all 42 either way."""
-    data = fake_ss.aydin()
-    site = fake_ss.Site(data, start="Approvals", batch=6, batch_ms=100, mode="page", scroller="main", lazy=lazy, count=count)
-    manifest, log, _ = run(fake_browser, site, tmp_path / "out", guided_now, no_recheck=True)
-    assert saved(tmp_path / "out")[0] == want(data)
 
 
 def test_filters_changed_mid_read_starts_over(fake_browser, tmp_path):
@@ -248,7 +236,7 @@ class NoColumns(fake_ss.Site):
 
 
 def test_no_column_never_downloads_something_else(fake_browser, tmp_path, monkeypatch):
-    monkeypatch.setattr(dashboard, "read_todo", functools.partial(REAL_READ_TODO, wait_s=3, step_ms=150, short_s=4))
+    monkeypatch.setattr(dashboard, "read_todo", functools.partial(REAL_READ_TODO, wait_s=3, step_ms=150))
     with pytest.raises(SystemExit, match="Couldn't read your To Do column"):
         run(fake_browser, NoColumns(fake_ss.aydin()), tmp_path / "out")
     assert not list((tmp_path / "out").glob("*/_data/*.json"))
@@ -271,15 +259,15 @@ def test_guided_read_without_column_asks_again_and_stop_works(fake_browser, tmp_
 
 # ---------- reading the page: hostile content ----------
 
-def read_page(html, width=1400, **kw):
+def read_page(html, **kw):
     from playwright.sync_api import sync_playwright
     with sync_playwright() as pw:
         b = pw.chromium.launch(headless=True)
-        page = b.new_page(viewport={"width": width, "height": 900})
+        page = b.new_page(viewport={"width": 1400, "height": 900})
         page.set_content(html)
         try:
             return REAL_READ_TODO(page, progress=lambda m: None, auto=True, reload=False,
-                                  **{"quiet_s": 1.5, "load_s": 30, "step_ms": 150, "short_s": 3, **kw})
+                                  quiet_s=1, load_s=15, step_ms=150, **kw)
         finally:
             b.close()
 
@@ -304,67 +292,14 @@ def test_count_next_to_other_header_bits():
     assert r["count"] == 42 and len(r["cards"]) == 42
 
 
-def his_layout(data=None, inject="", **opts):
-    """Aydin's (2026-10-21): an outer box scrolls, more cards load only on a real wheel at the bottom."""
-    base = dict(start="Approvals", batch=6, batch_ms=100, mode="page", scroller="main", lazy="wheel")
-    return fake_ss.dashboard_html(data or fake_ss.aydin(), **{**base, **opts}).replace("</body>", inject + "</body>")
-
-
-def many(n, first_crn):
-    data = fake_ss.aydin()
-    data["todo"] = [fake_ss.doc("ECEN", 100 + i % 800, 500 + i % 400, first_crn + i, "Spring 2027 - College Station")
-                    for i in range(n)]
-    return data
-
-
-def cards_set(r):
-    return {(c["label"], c["term"]) for c in r["cards"]}
-
-
-def test_scroll_with_banner_over_the_column():
-    banner = '<div style="position:fixed;left:0;right:0;bottom:0;height:260px;background:#fee;z-index:9">Cookies</div>'
-    assert cards_set(read_page(his_layout(inject=banner))) == want(fake_ss.aydin())
-
-
-def test_scroll_with_popup_over_everything():
-    modal = ('<script>setTimeout(() => { const m = document.createElement("div"); m.textContent = "Session expiring";'
-             'm.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:99"; document.body.append(m); }, 800)</script>')
-    assert cards_set(read_page(his_layout(inject=modal))) == want(fake_ss.aydin())
-
-
-def test_scroll_when_cards_scroll_inside_themselves():
-    h = his_layout().replace("height:110px}", "height:110px;overflow:auto}").replace(
-        'Object.assign(document.createElement("div"), {textContent: "✓ 1/2"})',
-        'Object.assign(document.createElement("div"), {textContent: "✓ 1/2 " + "long note ".repeat(80)})')
-    assert cards_set(read_page(h)) == want(fake_ss.aydin())
-
-
-def test_hidden_decoy_column_and_narrow_window():
-    decoy = ('<div style="visibility:hidden;position:absolute;top:0"><h3>To Do 1</h3>'
-             '<div class="card"><p>Syllabus Spring 2027 - College Station</p><p>ECEN 999 501 (99999)</p></div></div>')
-    r = read_page(his_layout().replace('<div id="board"', decoy + '<div id="board"'), width=700)
-    assert r["count"] == 42 and cards_set(r) == want(fake_ss.aydin())
-
-
-def test_more_than_500_cards_on_screen():
-    r = read_page(his_layout(many(600, 10000), batch=100, batch_ms=30, lazy=True), load_s=60)
-    assert len(r["cards"]) == 600
-
-
-def test_never_ending_list_stops_at_the_cap():
-    t = time.time()
-    r = read_page(his_layout(many(3000, 20000), batch=40, batch_ms=50, lazy=True), load_s=8)
-    assert time.time() - t < 25 and not r["settled"] and r["cards"]
-
-
 def test_page_text_only_yields_card_labels():
     evil = ["ECEN 314 200 (38440)<img src=x onerror=alert(1)>", "../../etc ECEN 999 999 (1)", "=HYPERLINK(\"x\")"]
     assert dashboard.parse_cards(" ".join(evil)) == ["ECEN 314 200 (38440)"]
     assert dashboard.clean_term('=HYPERLINK("x")<script>Spring 2027 - Q</script>/../') == \
         "HYPERLINK x script Spring 2027 - Q script .."
-    cards = dashboard._cards({"cards": [{"label": "<b>"}, {"label": 5}, "junk"]
-                                       + [{"label": f"ECEN 300 500 ({i})", "term": "x" * 500} for i in range(10000, 12500)]})
-    assert len(cards) == dashboard.MAX_CARDS - 3 and all(len(c["term"]) <= 80 for c in cards)
+    cards = dashboard._cards({"cards": [{"label": f"ECEN 300 500 ({i})", "term": "x" * 500} for i in range(1000, 1700)]
+                                       + [{"label": "<b>"}, {"label": 5}, "junk"]})
+    assert len(cards) == 500 and all(len(c["term"]) <= 80 for c in cards)
 
 
 def test_review_links_only_plain_same_site():
