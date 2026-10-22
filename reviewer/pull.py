@@ -244,6 +244,8 @@ def fetch_doc(request, d: dict) -> tuple[dict, int]:
     doc["term_name"] = doc.get("term_name") or d.get("term_name") or ""
     doc["status"] = doc.get("status") or d.get("status")
     doc["source"] = "published"
+    if dashboard.safe_site_url(d.get("review_url")):
+        doc["review_url"] = d["review_url"]     # the card's own Review link on his dashboard
     entity, term = d.get("entity_id") or raw.get("entity_id"), d.get("term_id") or raw.get("term_id")
     if (doc["status"] != "completed" or not doc["components"]) and entity and term:
         hs, hj = get_json(request, "/api2/heading-component",

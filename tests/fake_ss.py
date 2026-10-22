@@ -58,7 +58,8 @@ def dashboard_html(data, start="All", batch=6, batch_ms=150, mode="virtual", hid
     scroller="main": like Aydin's (2026-10-21), the page itself doesn't scroll; an app box around
     the board does, and the column has no scroll box of its own. lazy="wheel": more cards only
     load on real mouse-wheel scrolling near the bottom (not on scripted scrolling)."""
-    card_data = lambda ds: [{"label": d["title"], "term": d["term_name"], "name": d["name"]} for d in ds]
+    card_data = lambda ds: [{"label": d["title"], "term": d["term_name"], "name": d["name"],
+                             "review": d.get("review", f"/en-US/review/{d['code']}")} for d in ds]
     cfg = {"approvals": card_data(data["todo"]), "own": card_data(data["own"]), "start": start, "batch": batch,
            "batch_ms": batch_ms, "mode": mode, "hide": hide_last, "auto": auto_pick_ms, "count": count,
            "spinner": spinner, "lazy": lazy, "pause": pause, "then": then_pick, "live": live, "scroller": scroller,
@@ -104,7 +105,7 @@ def dashboard_html(data, start="All", batch=6, batch_ms=150, mode="virtual", hid
                    Object.assign(document.createElement("span"), {{textContent: c.term}}));
         d.append(tag, Object.assign(document.createElement("p"), {{textContent: c.label}}),
                  Object.assign(document.createElement("h4"), {{textContent: c.name}}),
-                 Object.assign(document.createElement("button"), {{textContent: "Review"}}),
+                 Object.assign(document.createElement("a"), {{textContent: "Review", href: c.review}}),
                  Object.assign(document.createElement("div"), {{textContent: "✓ 1/2"}}));
         return d;
       }}

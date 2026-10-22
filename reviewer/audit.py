@@ -39,9 +39,11 @@ def audit_doc(doc: dict, json_path: Path, folder: Path, use_llm: bool) -> dict:
     pdf = json_path.parent.parent / f"{file_stem(doc)}.pdf"
     f = {"name": pdf.name if pdf.exists() else doc.get("title", ""),
          "path": doc.get("term_name", ""),
-         # relative link so clicking it in Excel opens the downloaded PDF next to the report
-         "link": pdf.relative_to(folder).as_posix() if pdf.exists() else doc_url(doc)}
-    base = {"file": f, "course": course_label(doc), "code": doc.get("code"), "url": doc_url(doc)}
+         # relative link for the web page (it turns it into its own file link)
+         "link": pdf.relative_to(folder).as_posix() if pdf.exists() else doc_url(doc),
+         # full path for Excel: still opens after "Download Excel" saves a copy in Downloads
+         "excel_link": pdf.resolve().as_uri() if pdf.exists() else doc_url(doc)}
+    base = {"file": f, "course": course_label(doc), "code": doc.get("code"), "url": doc.get("review_url") or doc_url(doc)}
     if not doc.get("components"):
         return {**base, "status": "unreadable", "objectives": [],
                 "summary": "Couldn't see the content (your account may not have access to this draft)."}

@@ -9,7 +9,7 @@ Checks TAMU course syllabi for learning objectives that use banned Bloom's verbs
 
 ```bash
 pip install -r reviewer/requirements.txt      # web app only: requirements.txt
-python -m pytest -q                            # 174 tests, ~5 min (the dashboard ones drive a fake Simple Syllabus in Chromium). Run before every commit.
+python -m pytest -q                            # 176 tests, ~5 min (the dashboard ones drive a fake Simple Syllabus in Chromium). Run before every commit.
 python -m reviewer.pull --term "Spring 2027"   # opens a browser for TAMU login, downloads to syllabi/<date>/
 python -m reviewer.audit --no-ai --open        # audits the newest syllabi/<date>/ folder
 python -m reviewer.pull --logout               # forget the saved login
@@ -44,7 +44,7 @@ The documented API (`docs: Simple Syllabus REST API Guide`) is read-only and has
 
 ## How the reviewer tool fits together
 
-`reviewer/pull.py` → login (`login()`, persistent browser profile in the user's private app-data folder) → `list_docs()` → `fetch_doc()` per syllabus (full-page-get, falls back to heading-component for drafts) → `save_doc()` writes `syllabi/<date>/<term>/_data/<stem>.json` + `<stem>.pdf` → `reviewer/audit.py` reads the JSON, `find_outcomes()` pulls the learning objectives, `app/audit_core.check_items(presplit=True)` checks them, `app/report.build_review_xlsx()` writes the Excel.
+`reviewer/pull.py` → login (`login()`, persistent browser profile in the user's private app-data folder) → `list_docs()` → `fetch_doc()` per syllabus (full-page-get, falls back to heading-component for drafts) → `save_doc()` writes `syllabi/<date>/<term>/_data/<stem>.json` + `<stem>.pdf` → `reviewer/audit.py` reads the JSON (Excel links: the file name opens the PDF by its full `file://` path, so a downloaded copy of the Excel still works; the course name opens the syllabus online, using the card's own Review link when the To Do card has one (`safe_site_url()`: plain https links on tamu.simplesyllabus.com only), else `/en-US/doc/<code>`, which only shows the last published version), `find_outcomes()` pulls the learning objectives, `app/audit_core.check_items(presplit=True)` checks them, `app/report.build_review_xlsx()` writes the Excel.
 
 **In the web app:** when it runs on your own computer, the reviewer page has a **Simple Syllabus** tab (`app/simplesyllabus_job.py`, `/api/ss/*`). It runs the same `run_pull()` + `run_audit()` as a background job, so the login window opens on that computer. It's switched off on Cloud Run (`K_SERVICE`) and for requests that don't come from the same machine or aren't addressed to `localhost`/`127.0.0.1` (DNS rebinding). POSTs must be JSON so other sites can't send them. **Stop** (`/api/ss/stop`) sets a `threading.Event` that `run_pull()` checks in the login wait, the dashboard read and between syllabi (raises `Stopped`). And `/api/ss/file` only serves PDF/XLSX files inside `syllabi/`. Tests: `tests/test_ss_web.py`.
 

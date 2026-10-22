@@ -104,7 +104,9 @@ SCRAPE_JS = r"""(opts) => {
       const key = label + "|" + cterm;
       if (seen.has(key)) continue;
       seen.add(key);
-      cards.push({label, term: cterm.slice(0, 80), kind});
+      const links = [...card.querySelectorAll("a[href]")].filter(a => a.href.startsWith(location.origin + "/"));
+      const review = links.find(a => /review/i.test(txt(a))) || links.find(a => /^(view|open)$/i.test(txt(a)));
+      cards.push({label, term: cterm.slice(0, 80), kind, href: review ? review.href.slice(0, 400) : ""});
       if (els) els.push(card);
       if (cards.length >= limit) break;
     }
@@ -250,7 +252,7 @@ def match_cards(cards: list[dict], docs: list[dict], api_docs: dict | None = Non
                 missing.append(name)
             continue
         used.add(id(d))
-        found.append(d)
+        found.append({**d, "review_url": c["href"]} if c.get("href") else d)
     return found, missing
 
 
@@ -416,8 +418,19 @@ def _cards(res) -> list[dict]:
     for c in (res.get("cards") or [])[:MAX_CARDS]:
         labels = parse_cards(c.get("label") if isinstance(c, dict) and isinstance(c.get("label"), str) else "")
         if len(labels) == 1:
-            out.append({"label": labels[0], "term": clean_term(c.get("term")), "kind": clean_term(c.get("kind"))[:20]})
+            card = {"label": labels[0], "term": clean_term(c.get("term")), "kind": clean_term(c.get("kind"))[:20]}
+            if safe_site_url(c.get("href")):
+                card["href"] = c["href"]
+            out.append(card)
     return out
+
+
+SITE_URL_RX = re.compile(r"^https://tamu\.simplesyllabus\.com/[A-Za-z0-9/_.~%?=&#-]{1,300}$")
+
+
+def safe_site_url(u) -> bool:
+    """Only plain links on tamu.simplesyllabus.com (no javascript:, other sites, quotes or spaces)."""
+    return isinstance(u, str) and bool(SITE_URL_RX.match(u)) and "/../" not in u
 
 
 def _int(x):

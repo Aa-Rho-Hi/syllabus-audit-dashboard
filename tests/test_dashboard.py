@@ -8,6 +8,7 @@ import functools
 import json
 import threading
 import time
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -97,6 +98,19 @@ def test_guided_reads_exactly_his_todo(fake_browser, tmp_path):
     from reviewer.audit import run_audit
     results, _, xlsx = run_audit(tmp_path / "out", use_llm=False, progress=lambda m: None)
     assert len(results) == 42 and xlsx.exists()
+
+    # The Excel's links open the PDFs even from a copy somewhere else (what "Download Excel" makes).
+    import shutil
+    from urllib.parse import unquote, urlsplit
+    from openpyxl import load_workbook
+    copy = tmp_path / "Downloads" / xlsx.name
+    copy.parent.mkdir()
+    shutil.copy(xlsx, copy)
+    targets = {c.hyperlink.target for ws in load_workbook(copy).worksheets for row in ws.iter_rows() for c in row if c.hyperlink}
+    pdfs = {t for t in targets if t.startswith("file://")}
+    assert len(pdfs) == 42 and all(Path(unquote(urlsplit(t).path)).is_file() for t in pdfs)
+    # ...and the course names open each syllabus's Review page on Simple Syllabus, from the card itself.
+    assert targets - pdfs == {f"{fake_ss.SITE}/en-US/review/{d['code']}" for d in data["todo"]}
     assert all(any(o["status"] == "avoid" for o in r["objectives"]) for r in results)   # "Understand ..." flagged
 
 
@@ -351,6 +365,32 @@ def test_page_text_only_yields_card_labels():
     cards = dashboard._cards({"cards": [{"label": "<b>"}, {"label": 5}, "junk"]
                                        + [{"label": f"ECEN 300 500 ({i})", "term": "x" * 500} for i in range(10000, 12500)]})
     assert len(cards) == dashboard.MAX_CARDS - 3 and all(len(c["term"]) <= 80 for c in cards)
+
+
+def test_review_links_only_plain_same_site():
+    ok = "https://tamu.simplesyllabus.com/en-US/review/c38440t26f?step=2"
+    assert dashboard.safe_site_url(ok)
+    for bad in ("javascript:alert(1)", "https://evil.example/en-US/review/x", "http://tamu.simplesyllabus.com/x",
+                "https://tamu.simplesyllabus.com.evil.example/x", 'https://tamu.simplesyllabus.com/x"onmouseover=1',
+                "https://tamu.simplesyllabus.com/a b", "https://tamu.simplesyllabus.com/a/../../b", None, 5):
+        assert not dashboard.safe_site_url(bad)
+    cards = dashboard._cards({"cards": [{"label": "ECEN 314 200 (38440)", "href": "javascript:alert(1)"},
+                                        {"label": "ECEN 315 200 (38441)", "href": ok}]})
+    assert "href" not in cards[0] and cards[1]["href"] == ok
+
+
+def test_hostile_review_links_never_reach_the_excel(fake_browser, tmp_path):
+    data = fake_ss.aydin()
+    data["todo"][0]["review"] = "javascript:alert(document.cookie)"
+    data["todo"][1]["review"] = "https://evil.example/phish"
+    site = fake_ss.Site(data, start="Approvals", batch=42, batch_ms=50)
+    run(fake_browser, site, tmp_path / "out", guided_now, no_recheck=True)
+    from openpyxl import load_workbook
+    from reviewer.audit import run_audit
+    _, _, xlsx = run_audit(tmp_path / "out", use_llm=False, progress=lambda m: None)
+    targets = {c.hyperlink.target for ws in load_workbook(xlsx).worksheets for row in ws.iter_rows() for c in row if c.hyperlink}
+    assert not any("javascript" in t or "evil" in t for t in targets)
+    assert f"{fake_ss.SITE}/en-US/doc/{data['todo'][0]['code']}" in targets      # falls back to the syllabus page
 
 
 def test_api_docs_only_keep_safe_fields():

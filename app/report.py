@@ -103,9 +103,17 @@ def _header(ws, headers, widths):
     ws.freeze_panes = "A2"
 
 
+def _web(ws, row, col, url):
+    """The course name opens the syllabus on the website (Simple Syllabus runs only; https only)."""
+    if isinstance(url, str) and url.startswith("https://"):
+        ws.cell(row, col).hyperlink = url
+        ws.cell(row, col).font = Font(color="1155CC", underline="single")
+
+
 def _link(ws, row, col, f):
-    if f.get("link"):
-        ws.cell(row, col).hyperlink = f["link"]
+    target = f.get("excel_link") or f.get("link")
+    if target:
+        ws.cell(row, col).hyperlink = target
         ws.cell(row, col).font = Font(color="1155CC", underline="single")
 
 
@@ -152,6 +160,7 @@ def build_review_xlsx(audit: dict) -> bytes:
                 c.alignment = WRAP
             ws.cell(row, 5).fill = PatternFill("solid", fgColor=AMBER_BG)
             _link(ws, row, 2, f)
+            _web(ws, row, 1, r.get("url"))
             continue
         for i, o in enumerate(r["objectives"], 1):
             bad = o.get("status") != "ok"
@@ -172,6 +181,7 @@ def build_review_xlsx(audit: dict) -> bytes:
             if o.get("overlaps"):
                 ws.cell(row, 7).fill = PatternFill("solid", fgColor=BLUE_BG)
             _link(ws, row, 2, f)
+            _web(ws, row, 1, r.get("url"))
 
     last = max(ws.max_row, 2) + 500
     dv = DataValidation(type="list", formula1='"' + ",".join(STATUSES) + '"', allow_blank=True,
@@ -207,6 +217,7 @@ def build_review_xlsx(audit: dict) -> bytes:
         if note:
             sm.row_dimensions[row].height = min(400, 15 * (note.count("\n") + 2 + len(note) // 95))
         _link(sm, row, 2, r.get("file", {}))
+        _web(sm, row, 1, r.get("url"))
     sm.append([])
     sm.append([f"Folder: {audit.get('folder_name', '')}", "", "", "", "",
                f"Generated {datetime.now().strftime('%b %d, %Y %I:%M %p')}"])
